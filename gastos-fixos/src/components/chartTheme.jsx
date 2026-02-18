@@ -1,20 +1,26 @@
 import React from "react";
 
+// Paleta moderna (funciona bem em dark/light)
 export const CHART_COLORS = [
-  "#7c3aed",
-  "#22d3ee",
-  "#60a5fa",
-  "#22c55e",
-  "#f59e0b",
-  "#f97316",
-  "#ef4444",
-  "#a78bfa",
+  "#7c3aed", // roxo
+  "#22d3ee", // ciano
+  "#60a5fa", // azul
+  "#22c55e", // verde
+  "#f59e0b", // âmbar
+  "#f97316", // laranja
+  "#ef4444", // vermelho
+  "#a78bfa", // lilás
 ];
 
 export const gridStroke = "rgba(255,255,255,.08)";
 export const axisTick = { fill: "rgba(229,231,235,.72)", fontSize: 12 };
 export const axisLine = { stroke: "rgba(255,255,255,.12)" };
 
+/**
+ * Tooltip dark (glass) para Recharts.
+ * Uso:
+ * <Tooltip content={<DarkTooltip formatter={(v)=>moneyBRL(v)} />} />
+ */
 export function DarkTooltip({ active, payload, label, formatter, labelFormatter }) {
   if (!active || !payload?.length) return null;
   const shownLabel = labelFormatter ? labelFormatter(label) : label;
@@ -33,9 +39,13 @@ export function DarkTooltip({ active, payload, label, formatter, labelFormatter 
       {shownLabel ? (
         <div style={{ fontWeight: 800, marginBottom: 6, color: "rgba(229,231,235,.9)" }}>{shownLabel}</div>
       ) : null}
+
       <div style={{ display: "grid", gap: 6 }}>
-        {payload.map((p) => (
-          <div key={`${p.dataKey}-${p.name}`} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        {payload.map((p, idx) => (
+          <div
+            key={`${p.dataKey ?? "k"}-${p.name ?? "n"}-${idx}`}
+            style={{ display: "flex", alignItems: "center", gap: 8 }}
+          >
             <span
               style={{
                 width: 10,
@@ -55,4 +65,3 @@ export function DarkTooltip({ active, payload, label, formatter, labelFormatter 
     </div>
   );
 }
-s
