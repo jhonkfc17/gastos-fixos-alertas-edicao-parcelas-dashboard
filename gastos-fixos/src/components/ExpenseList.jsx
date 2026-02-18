@@ -36,7 +36,7 @@ export default function ExpenseList({ items, onToggleActive, onRemove, onUpdateA
           <div style={{ ...styles.muted, fontSize: 13 }}>Edite valor e saia do campo para salvar.</div>
         </div>
 
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <div className="expenseFilters" style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <input
             style={{ ...styles.input, width: 220 }}
             placeholder="Buscar (nome, categoria...)"
@@ -79,7 +79,7 @@ export default function ExpenseList({ items, onToggleActive, onRemove, onUpdateA
         </div>
       </div>
 
-      <div style={{ marginTop: 12, border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
+      <div className="expenseTable" style={{ marginTop: 12, border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
         <HeaderRow />
         {filtered.length === 0 ? (
           <div style={{ padding: 12, ...styles.muted }}>Nada por aqui.</div>
@@ -114,15 +114,8 @@ export default function ExpenseList({ items, onToggleActive, onRemove, onUpdateA
 function HeaderRow() {
   return (
     <div
-      style={{
-        padding: 12,
-        background: "var(--card2)",
-        borderBottom: "1px solid var(--border)",
-        display: "grid",
-        gridTemplateColumns: "2fr 1fr 0.8fr 1fr 1.2fr",
-        gap: 10,
-        fontWeight: 700,
-      }}
+      className="expenseHeader"
+      style={{ padding: 12, background: "var(--card2)", borderBottom: "1px solid var(--border)", fontWeight: 700 }}
     >
       <div>Nome</div>
       <div>Categoria</div>
@@ -140,16 +133,10 @@ function Row({ item, onToggleActive, onRemove, onUpdateAmount, onUpdateFields, o
 
   return (
     <div
-      style={{
-        padding: 12,
-        display: "grid",
-        gridTemplateColumns: "2fr 1fr 0.8fr 1fr 1.2fr",
-        gap: 10,
-        alignItems: "center",
-        borderBottom: "1px solid var(--border)",
-      }}
+      className="expenseRow"
+      style={{ padding: 12, alignItems: "center", borderBottom: "1px solid var(--border)" }}
     >
-      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      <div className="expenseInfo" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
         <div style={{ fontWeight: 700 }}>
           {item.name}{" "}
           {!item.active && <span style={{ ...styles.muted, fontWeight: 500 }}>(inativo)</span>}
@@ -172,30 +159,41 @@ function Row({ item, onToggleActive, onRemove, onUpdateAmount, onUpdateFields, o
         ) : null}
       </div>
 
-      <select
-        style={styles.input}
-        value={item.category || "Outros"}
-        onChange={(e) => onUpdateFields?.(item.id, { category: e.target.value })}
-      >
-        {["Moradia", "Contas", "Assinaturas", "Transporte", "Saúde", "Outros"].map((c) => (
-          <option key={c} value={c}>{c}</option>
-        ))}
-      </select>
+      <div className="expenseMeta">
+        <div className="expenseField">
+          <div className="expenseLabel">Categoria</div>
+          <select
+            style={styles.input}
+            value={item.category || "Outros"}
+            onChange={(e) => onUpdateFields?.(item.id, { category: e.target.value })}
+          >
+            {["Moradia", "Contas", "Assinaturas", "Transporte", "Saúde", "Outros"].map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+        </div>
 
-      <input
-        style={styles.input}
-        value={String(item.due_day ?? "")}
-        onChange={(e) => onUpdateFields?.(item.id, { due_day: Number(e.target.value) || item.due_day })}
-      />
+        <div className="expenseField">
+          <div className="expenseLabel">Venc.</div>
+          <input
+            style={styles.input}
+            value={String(item.due_day ?? "")}
+            onChange={(e) => onUpdateFields?.(item.id, { due_day: Number(e.target.value) || item.due_day })}
+          />
+        </div>
 
-      <input
-        style={styles.input}
-        defaultValue={String(item.amount)}
-        onBlur={(e) => onUpdateAmount?.(item.id, e.target.value)}
-        title={`Atual: ${moneyBRL(item.amount)}`}
-      />
+        <div className="expenseField">
+          <div className="expenseLabel">Valor</div>
+          <input
+            style={styles.input}
+            defaultValue={String(item.amount)}
+            onBlur={(e) => onUpdateAmount?.(item.id, e.target.value)}
+            title={`Atual: ${moneyBRL(item.amount)}`}
+          />
+        </div>
+      </div>
 
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+      <div className="expenseActions" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         <button style={styles.btn} type="button" onClick={() => onToggleActive?.(item.id, item.active)}>
           {item.active ? "Desativar" : "Ativar"}
         </button>
