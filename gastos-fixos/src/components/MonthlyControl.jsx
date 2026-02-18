@@ -13,7 +13,7 @@ import {
   YAxis,
   CartesianGrid,
 } from "recharts";
-import { CHART_COLORS, DarkTooltip, axisLine, axisTick, gridStroke } from "./chartTheme.jsx";
+import { CHART_COLORS, DarkTooltip, axisLine, axisTick, gridStroke } from "./chartTheme";
 
 export default function MonthlyControl({ items, userId, year, month, onChangeYM, onStatusChange }) {
   const today = new Date();
@@ -39,7 +39,7 @@ export default function MonthlyControl({ items, userId, year, month, onChangeYM,
     setLoading(true);
     const { data, error } = await supabase
       .from("monthly_expense_status")
-      .select("id, expense_id, paid")
+      .select("id, expense_id, paid, paid_amount")
       .eq("year", localYear)
       .eq("month", localMonth);
 
@@ -66,7 +66,7 @@ export default function MonthlyControl({ items, userId, year, month, onChangeYM,
 
     const { data, error } = await supabase
       .from("monthly_expense_status")
-      .select("expense_id, year, month, paid")
+      .select("expense_id, year, month, paid, paid_amount")
       .in("year", years)
       .in("month", months);
 
@@ -85,7 +85,8 @@ export default function MonthlyControl({ items, userId, year, month, onChangeYM,
       const exp = byId.get(row.expense_id);
       if (!exp) continue;
       if (!expenseMonthInfo(exp, row.year, row.month).applicable) continue;
-      byKey.set(key, (byKey.get(key) || 0) + Number(exp.amount || 0));
+      const paidValue = Number(row.paid_amount ?? exp.amount ?? 0);
+      byKey.set(key, (byKey.get(key) || 0) + paidValue);
     }
 
     const out = points.map((p) => {
@@ -98,13 +99,33 @@ export default function MonthlyControl({ items, userId, year, month, onChangeYM,
   }
 
   async function togglePaid(expenseId) {
+    const exp = (items ?? []).find((i) => i.id === expenseId);
+    if (!exp) return;
+
     const existing = status.find((s) => s.expense_id === expenseId);
+    const nextPaid = existing ? !existing.paid : true;
+
+    let paidAmount = null;
+    let paidAt = null;
+
+    if (nextPaid) {
+      const suggested = Number(exp.amount || 0);
+      const raw = prompt("Valor pago (pode ser parcial):", String(suggested).replace(".", ","));
+      if (raw === null) return; // cancelou
+      const v = Number(String(raw).replace(",", "."));
+      if (!Number.isFinite(v) || v <= 0) return alert("Informe um valor pago válido.");
+      paidAmount = Math.round(v * 100) / 100;
+      paidAt = new Date().toISOString();
+    }
+
     const payload = {
       user_id: userId,
       expense_id: expenseId,
       year: localYear,
       month: localMonth,
-      paid: existing ? !existing.paid : true,
+      paid: nextPaid,
+      paid_amount: paidAmount,
+      paid_at: paidAt,
     };
 
     const { error } = await supabase
@@ -113,126 +134,74 @@ export default function MonthlyControl({ items, userId, year, month, onChangeYM,
 
     if (error) return alert(error.message);
 
-    // Saída automática na carteira quando marcar como pago
-    await syncWalletForExpense(expenseId, payload.paid);
+    // Saída automática na carteira (GLOBAL) quando marcar como pago
+    await syncWalletForExpense(exp, nextPaid, paidAmount);
+
     fetchStatus();
   }
 
-  
-  async function syncWalletForExpense(expenseId, isPaid) {
-    // Atualiza a carteira automaticamente ao marcar/desmarcar "Pago"
-    // Compatível com 2 possíveis tabelas:
-    // - wallet_entries (carteira por mês)
-    // - wallet_transactions (carteira global com ref_year/ref_month)
+  async function syncWalletForExpense(exp, isPaid, paidAmount) {
     try {
-      const exp = (items ?? []).find((i) => i.id === expenseId);
-      if (!exp) return;
       const info = expenseMonthInfo(exp, localYear, localMonth);
       if (!info.applicable) return;
 
-      const amount = -Math.abs(Number(exp.amount || 0));
+      const value = Math.round(Number(paidAmount ?? exp.amount ?? 0) * 100) / 100;
+      const amount = -Math.abs(value);
 
-      // Helper: tenta executar em uma tabela e retorna true se deu certo
-      async function tryUpsert(table, row, onConflict) {
-        const q = supabase.from(table).upsert(row, onConflict ? { onConflict } : undefined);
-        const { error } = await q;
-        if (error) throw error;
-        return true;
-      }
-
-      async function tryDelete(table, whereFn) {
-        const q = whereFn(supabase.from(table).delete());
-        const { error } = await q;
-        if (error) throw error;
-        return true;
-      }
+      // Sem depender de unique constraint: remove qualquer registro anterior desse gasto/mês e insere novamente.
+      const baseWhere = (q) =>
+        q
+          .eq("user_id", userId)
+          .eq("kind", "expense_payment")
+          .eq("ref_expense_id", exp.id)
+          .eq("ref_year", localYear)
+          .eq("ref_month", localMonth);
 
       if (isPaid) {
-        // 1) Tenta wallet_entries (por mês)
-        try {
-          await tryUpsert(
-            "wallet_entries",
-            {
-              user_id: userId,
-              kind: "expense",
-              amount,
-              note: exp.name,
-              ref_expense_id: exp.id,
-              year: localYear,
-              month: localMonth,
-              created_at: new Date().toISOString(),
-            },
-            "user_id,kind,ref_expense_id,year,month"
-          );
-          return;
-        } catch (e1) {
-          // segue para fallback
-          console.debug?.("[wallet] wallet_entries não disponível/compatível, tentando wallet_transactions…", e1?.message);
-        }
+        // remove possíveis duplicados
+        await baseWhere(supabase.from("wallet_transactions").delete());
 
-        // 2) Fallback: wallet_transactions (global)
-        try {
-          await tryUpsert(
-            "wallet_transactions",
-            {
-              user_id: userId,
-              kind: "expense",
-              amount,
-              note: exp.name,
-              ref_expense_id: exp.id,
-              ref_year: localYear,
-              ref_month: localMonth,
-            },
-            "user_id,kind,ref_expense_id,ref_year,ref_month"
-          );
-        } catch (e2) {
-          console.error?.("[wallet] Falha ao registrar saída automática na carteira:", e2?.message || e2);
-        }
+        const label = `${exp.name} • ${ymLabel(localYear, localMonth)}`;
+        const { error } = await supabase.from("wallet_transactions").insert({
+          user_id: userId,
+          kind: "expense_payment",
+          amount,
+          description: label,
+          note: label, // compatibilidade
+          ref_expense_id: exp.id,
+          ref_year: localYear,
+          ref_month: localMonth,
+          created_at: new Date().toISOString(),
+        });
+        if (error) console.error?.("[wallet] insert error", error);
       } else {
-        // desmarcou pago: remove saída automática
-        try {
-          await tryDelete("wallet_entries", (q) =>
-            q
-              .eq("user_id", userId)
-              .eq("kind", "expense")
-              .eq("ref_expense_id", expenseId)
-              .eq("year", localYear)
-              .eq("month", localMonth)
-          );
-          return;
-        } catch (e1) {
-          console.debug?.("[wallet] wallet_entries não disponível/compatível ao remover, tentando wallet_transactions…", e1?.message);
-        }
-
-        try {
-          await tryDelete("wallet_transactions", (q) =>
-            q
-              .eq("user_id", userId)
-              .eq("kind", "expense")
-              .eq("ref_expense_id", expenseId)
-              .eq("ref_year", localYear)
-              .eq("ref_month", localMonth)
-          );
-        } catch (e2) {
-          console.error?.("[wallet] Falha ao remover saída automática na carteira:", e2?.message || e2);
-        }
+        const { error } = await baseWhere(supabase.from("wallet_transactions").delete());
+        if (error) console.error?.("[wallet] delete error", error);
       }
     } catch (e) {
-      console.error?.("[wallet] Erro inesperado na sincronização:", e?.message || e);
+      console.error?.("[wallet] sync error", e);
     }
   }
 
   async function setAllPaid(nextPaid) {
-    const active = (items ?? [])
-      .filter((i) => i.active)
-      .filter((i) => expenseMonthInfo(i, localYear, localMonth).applicable);
+    const active = (items ?? []).filter((i) => i.active);
     if (active.length === 0) return;
-    const payload = active.map((i) => ({
+
+    if (nextPaid) {
+      if (!confirm("Marcar todos os gastos ativos como pagos? (Será registrada saída automática na carteira)") ) return;
+    }
+
+    // aplica somente aos gastos aplicáveis no mês
+    const applicable = active.filter((i) => expenseMonthInfo(i, localYear, localMonth).applicable);
+
+    const payload = applicable.map((i) => ({
       user_id: userId,
       expense_id: i.id,
       year: localYear,
       month: localMonth,
       paid: Boolean(nextPaid),
+      paid_amount: nextPaid ? Math.round(Number(i.amount || 0) * 100) / 100 : null,
+      paid_at: nextPaid ? new Date().toISOString() : null,
     }));
 
     const { error } = await supabase
@@ -241,137 +210,82 @@ export default function MonthlyControl({ items, userId, year, month, onChangeYM,
 
     if (error) return alert(error.message);
 
-    
-    // carteira: cria/remova saídas automáticas em lote (mantém compatibilidade)
-    try {
-      const ids = active.map((i) => i.id);
-
-      async function tryUpsertMany(table, rows, onConflict) {
-        const { error } = await supabase.from(table).upsert(rows, onConflict ? { onConflict } : undefined);
-        if (error) throw error;
-        return true;
+    // sincroniza carteira (em lote)
+    if (nextPaid) {
+      for (const exp of applicable) {
+        // eslint-disable-next-line no-await-in-loop
+        await syncWalletForExpense(exp, true, Math.round(Number(exp.amount || 0) * 100) / 100);
       }
-
-      async function tryDeleteMany(table, whereFn) {
-        const { error } = await whereFn(supabase.from(table).delete());
-        if (error) throw error;
-        return true;
+    } else {
+      for (const exp of applicable) {
+        // eslint-disable-next-line no-await-in-loop
+        await syncWalletForExpense(exp, false, null);
       }
-
-      if (nextPaid) {
-        // tenta wallet_entries
-        try {
-          const rows = active.map((i) => ({
-            user_id: userId,
-            kind: "expense",
-            amount: -Math.abs(Number(i.amount || 0)),
-            note: i.name,
-            ref_expense_id: i.id,
-            year: localYear,
-            month: localMonth,
-            created_at: new Date().toISOString(),
-          }));
-          await tryUpsertMany("wallet_entries", rows, "user_id,kind,ref_expense_id,year,month");
-          // ok
-        } catch (e1) {
-          console.debug?.("[wallet] wallet_entries indisponível no lote, usando wallet_transactions…", e1?.message);
-
-          const rows = active.map((i) => ({
-            user_id: userId,
-            kind: "expense",
-            amount: -Math.abs(Number(i.amount || 0)),
-            note: i.name,
-            ref_expense_id: i.id,
-            ref_year: localYear,
-            ref_month: localMonth,
-          }));
-          await tryUpsertMany("wallet_transactions", rows, "user_id,kind,ref_expense_id,ref_year,ref_month");
-        }
-      } else {
-        // remove em lote
-        try {
-          await tryDeleteMany("wallet_entries", (q) =>
-            q
-              .eq("user_id", userId)
-              .eq("kind", "expense")
-              .eq("year", localYear)
-              .eq("month", localMonth)
-              .in("ref_expense_id", ids)
-          );
-        } catch (e1) {
-          console.debug?.("[wallet] wallet_entries indisponível ao remover lote, usando wallet_transactions…", e1?.message);
-
-          await tryDeleteMany("wallet_transactions", (q) =>
-            q
-              .eq("user_id", userId)
-              .eq("kind", "expense")
-              .eq("ref_year", localYear)
-              .eq("ref_month", localMonth)
-              .in("ref_expense_id", ids)
-          );
-        }
-      }
-    } catch (e) {
-      console.error?.("[wallet] Falha ao sincronizar carteira em lote:", e?.message || e);
     }
 
     fetchStatus();
-
   }
 
   function prevMonth() {
-    const m = localMonth - 1;
-    if (m < 1) {
-      const y = localYear - 1;
-      setLocalYear(y);
-      setLocalMonth(12);
-      onChangeYM?.({ year: y, month: 12 });
-    } else {
-      setLocalMonth(m);
-      onChangeYM?.({ year: localYear, month: m });
-    }
+    const d = new Date(localYear, localMonth - 2, 1);
+    const y = d.getFullYear();
+    const m = d.getMonth() + 1;
+    setLocalYear(y);
+    setLocalMonth(m);
+    onChangeYM?.(y, m);
   }
 
   function nextMonth() {
-    const m = localMonth + 1;
-    if (m > 12) {
-      const y = localYear + 1;
-      setLocalYear(y);
-      setLocalMonth(1);
-      onChangeYM?.({ year: y, month: 1 });
-    } else {
-      setLocalMonth(m);
-      onChangeYM?.({ year: localYear, month: m });
-    }
+    const d = new Date(localYear, localMonth, 1);
+    const y = d.getFullYear();
+    const m = d.getMonth() + 1;
+    setLocalYear(y);
+    setLocalMonth(m);
+    onChangeYM?.(y, m);
   }
 
-  const paidIds = useMemo(() => new Set(status.filter((s) => s.paid).map((s) => s.expense_id)), [status]);
+  const applicableItems = useMemo(() => {
+    return (items ?? []).filter((i) => i.active && expenseMonthInfo(i, localYear, localMonth).applicable);
+  }, [items, localYear, localMonth]);
 
-  const { totalPaid, totalPending } = useMemo(() => {
-    const list = (items ?? [])
-      .filter((i) => i.active)
-      .filter((i) => expenseMonthInfo(i, localYear, localMonth).applicable);
-    const totalPaid = list.filter((i) => paidIds.has(i.id)).reduce((acc, i) => acc + Number(i.amount || 0), 0);
-    const totalPending = list.filter((i) => !paidIds.has(i.id)).reduce((acc, i) => acc + Number(i.amount || 0), 0);
-    return { totalPaid, totalPending };
-  }, [items, paidIds, localYear, localMonth]);
+  const paidSet = useMemo(() => {
+    const set = new Set();
+    for (const s of status ?? []) if (s.paid) set.add(s.expense_id);
+    return set;
+  }, [status]);
+
+  const totalMonth = useMemo(() => {
+    return applicableItems.reduce((acc, i) => acc + Number(i.amount || 0), 0);
+  }, [applicableItems]);
+
+  const paidMonth = useMemo(() => {
+    let sum = 0;
+    for (const s of status ?? []) {
+      if (!s.paid) continue;
+      const exp = applicableItems.find((i) => i.id === s.expense_id);
+      if (!exp) continue;
+      sum += Number(s.paid_amount ?? exp.amount ?? 0);
+    }
+    return sum;
+  }, [status, applicableItems]);
 
   const pieData = useMemo(() => {
+    const paid = Math.max(0, paidMonth);
+    const pending = Math.max(0, totalMonth - paid);
     return [
-      { name: "Pago", value: totalPaid },
-      { name: "Pendente", value: totalPending },
-    ].filter((x) => x.value > 0);
-  }, [totalPaid, totalPending]);
+      { name: "Pago", value: paid },
+      { name: "Pendente", value: pending },
+    ].filter((d) => d.value > 0);
+  }, [paidMonth, totalMonth]);
 
   return (
-    <div style={styles.card}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+    <div style={{ ...styles.card, padding: 14 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
         <div>
-          <div style={{ fontWeight: 800, fontSize: 16 }}>Controle mensal</div>
-          <div style={{ ...styles.muted, fontSize: 13 }}>{ymLabel(localYear, localMonth)}</div>
+          <div style={{ fontWeight: 900, fontSize: 16 }}>Controle mensal</div>
+          <div style={{ ...styles.muted, fontSize: 13 }}>{ymLabel(localYear, localMonth)} • somente gastos ativos aplicáveis</div>
         </div>
-
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <button style={styles.btnGhost} onClick={prevMonth} type="button">◀</button>
           <button style={styles.btnGhost} onClick={nextMonth} type="button">▶</button>
           <button style={styles.btnGhost} onClick={() => setAllPaid(true)} type="button" title="Marca todos os ativos como pagos">
@@ -383,25 +297,21 @@ export default function MonthlyControl({ items, userId, year, month, onChangeYM,
         </div>
       </div>
 
-      <div style={{ marginTop: 10, ...styles.gridAuto }}>
-        <div style={styles.card}>
+      <div style={{ ...styles.gridAuto, marginTop: 12 }}>
+        <div style={{ ...styles.card, background: "var(--card2)" }}>
+          <div style={{ ...styles.muted, fontSize: 13 }}>Total do mês</div>
+          <div style={{ fontSize: 22, fontWeight: 900, marginTop: 6 }}>{moneyBRL(totalMonth)}</div>
+        </div>
+        <div style={{ ...styles.card, background: "var(--card2)" }}>
           <div style={{ ...styles.muted, fontSize: 13 }}>Pago</div>
-          <div style={{ marginTop: 6, fontSize: 20, fontWeight: 900 }}>{moneyBRL(totalPaid)}</div>
+          <div style={{ fontSize: 22, fontWeight: 900, marginTop: 6 }}>{moneyBRL(paidMonth)}</div>
         </div>
-        <div style={styles.card}>
-          <div style={{ ...styles.muted, fontSize: 13 }}>Pendente</div>
-          <div style={{ marginTop: 6, fontSize: 20, fontWeight: 900 }}>{moneyBRL(totalPending)}</div>
-        </div>
+      </div>
 
-        <div style={{ ...styles.card, gridColumn: "1 / -1" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-            <div>
-              <div style={{ fontWeight: 800, fontSize: 16 }}>Pago x Pendente</div>
-              <div style={{ ...styles.muted, fontSize: 13 }}>Somente gastos ativos</div>
-            </div>
-            <span style={styles.badge}>Visão do mês</span>
-          </div>
-
+      <div style={{ ...styles.gridAuto, marginTop: 12 }}>
+        <div style={{ ...styles.card, background: "var(--card2)", gridColumn: "1 / -1" }}>
+          <div style={{ fontWeight: 800 }}>Pago x Pendente</div>
+          <div style={{ ...styles.muted, fontSize: 13 }}>Somente gastos ativos</div>
           <div style={{ width: "100%", height: 260, marginTop: 10 }}>
             {pieData.length === 0 ? (
               <div style={{ padding: 12, ...styles.muted }}>Sem dados para o mês selecionado.</div>
@@ -430,18 +340,12 @@ export default function MonthlyControl({ items, userId, year, month, onChangeYM,
           </div>
         </div>
 
-        <div style={{ ...styles.card, gridColumn: "1 / -1" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-            <div>
-              <div style={{ fontWeight: 800, fontSize: 16 }}>Histórico (últimos 6 meses)</div>
-              <div style={{ ...styles.muted, fontSize: 13 }}>Total marcado como pago</div>
-            </div>
-            <span style={styles.badge}>Trend</span>
-          </div>
-
+        <div style={{ ...styles.card, background: "var(--card2)", gridColumn: "1 / -1" }}>
+          <div style={{ fontWeight: 800 }}>Histórico (últimos 6 meses)</div>
+          <div style={{ ...styles.muted, fontSize: 13 }}>Total pago por mês</div>
           <div style={{ width: "100%", height: 260, marginTop: 10 }}>
             {history.length === 0 ? (
-              <div style={{ padding: 12, ...styles.muted }}>Carregando histórico...</div>
+              <div style={{ padding: 12, ...styles.muted }}>Sem dados suficientes.</div>
             ) : (
               <ResponsiveContainer>
                 <LineChart data={history} margin={{ left: 8, right: 12, top: 10, bottom: 0 }}>
@@ -473,53 +377,42 @@ export default function MonthlyControl({ items, userId, year, month, onChangeYM,
 
       <div style={{ marginTop: 12, border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
         <div style={{ padding: 12, background: "var(--card2)", fontWeight: 800, borderBottom: "1px solid var(--border)" }}>
-          Marque como pago (somente ativos)
+          Marcar como pago
         </div>
-
-        {loading ? (
-          <div style={{ padding: 12, ...styles.muted }}>Carregando...</div>
-        ) : (items ?? []).filter((i) => i.active).filter((i) => expenseMonthInfo(i, localYear, localMonth).applicable).length === 0 ? (
-          <div style={{ padding: 12, ...styles.muted }}>Nenhum gasto ativo.</div>
+        {applicableItems.length === 0 ? (
+          <div style={{ padding: 12, ...styles.muted }}>Nenhum gasto aplicável no mês.</div>
         ) : (
-          (items ?? [])
-            .filter((i) => i.active)
-            .filter((i) => expenseMonthInfo(i, localYear, localMonth).applicable)
-            .map((item) => (
-              <label
-                key={item.id}
+          applicableItems.map((exp) => {
+            const paid = paidSet.has(exp.id);
+            const badge = paid ? "Pago" : "Pendente";
+            return (
+              <div
+                key={exp.id}
                 style={{
-                  padding: 12,
                   display: "flex",
                   justifyContent: "space-between",
                   alignItems: "center",
-                  gap: 12,
-                  borderBottom: "1px solid var(--border)",
+                  gap: 10,
+                  padding: 12,
+                  borderTop: "1px solid var(--border)",
                 }}
               >
-                <span style={{ display: "flex", flexDirection: "column" }}>
-                  <span style={{ fontWeight: 800 }}>{item.name}</span>
-                  <span style={{ ...styles.muted, fontSize: 13 }}>
-                    {(() => {
-                      const info = expenseMonthInfo(item, localYear, localMonth);
-                      const part = item.is_installment && info.installmentIndex && info.installmentTotal
-                        ? ` • parcela ${info.installmentIndex}/${info.installmentTotal}`
-                        : "";
-                      return `${item.category} • vence dia ${item.due_day}${part}`;
-                    })()}
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 900, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{exp.name}</div>
+                  <div style={{ ...styles.muted, fontSize: 12 }}>{moneyBRL(exp.amount)} • vence dia {exp.due_day}</div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ ...styles.badge, background: paid ? "rgba(34,197,94,.16)" : "rgba(245,158,11,.14)" }}>
+                    {badge}
                   </span>
-                </span>
-
-                <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ fontWeight: 900 }}>{moneyBRL(item.amount)}</span>
-                  <input type="checkbox" checked={paidIds.has(item.id)} onChange={() => togglePaid(item.id)} />
-                </span>
-              </label>
-            ))
+                  <button style={paid ? styles.btnGhost : styles.btn} type="button" onClick={() => togglePaid(exp.id)}>
+                    {paid ? "Desfazer" : "Marcar"}
+                  </button>
+                </div>
+              </div>
+            );
+          })
         )}
-      </div>
-
-      <div style={{ ...styles.muted, fontSize: 13, marginTop: 10, lineHeight: 1.35 }}>
-        Observação: o “pago” é registrado por mês/ano e não altera o cadastro do gasto fixo.
       </div>
     </div>
   );
