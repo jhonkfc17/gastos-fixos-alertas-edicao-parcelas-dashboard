@@ -99,3 +99,88 @@ select option, select optgroup{
   background: var(--bg2);
   color: var(--text);
 }
+
+/* ===== Expense list responsive (mobile) ===== */
+.expenseHeader{
+  display: grid;
+  grid-template-columns: 2fr 1fr 0.8fr 1fr 1.2fr;
+  gap: 10px;
+}
+
+.expenseRow{
+  display: grid;
+  grid-template-columns: 2fr 1fr 0.8fr 1fr 1.2fr;
+  gap: 10px;
+}
+
+.expenseMeta{
+  display: contents;
+}
+
+.expenseLabel{
+  display: none;
+}
+
+@media (max-width: 720px){
+  .expenseFilters input,
+  .expenseFilters select{
+    width: 100% !important;
+  }
+
+  .expenseHeader{
+    display: none;
+  }
+
+  .expenseTable{
+    border-radius: 16px;
+    overflow: visible;
+    border: none !important;
+  }
+
+  .expenseRow{
+    grid-template-columns: 1fr;
+    gap: 12px;
+    border: 1px solid var(--border) !important;
+    border-radius: 18px;
+    background: var(--card2);
+    box-shadow: var(--shadow);
+    margin-bottom: 12px;
+  }
+
+  .expenseInfo{
+    padding-bottom: 4px;
+  }
+
+  .expenseMeta{
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .expenseField:nth-child(1){
+    grid-column: 1 / -1;
+  }
+
+  .expenseLabel{
+    display: block;
+    font-size: 12px;
+    color: rgba(229,231,235,.65);
+    margin: 0 0 6px 2px;
+    font-weight: 700;
+  }
+
+  .expenseActions{
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .expenseActions button{
+    width: 100%;
+  }
+
+  /* "Desativar/Ativar" em destaque ocupando a linha toda */
+  .expenseActions button:first-child{
+    grid-column: 1 / -1;
+  }
+}
