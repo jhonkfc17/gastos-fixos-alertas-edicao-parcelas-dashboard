@@ -30,7 +30,7 @@ export default function Auth() {
   return (
     <div style={{ ...styles.container, maxWidth: 520 }}>
       <div style={styles.card}>
-        <h1 style={styles.h1}>💰 Gastos Fixos</h1>
+        <h1 style={styles.h1}>💰Minha Carteira</h1>
         <p style={{ ...styles.muted, marginTop: 6 }}>
           Faça login para salvar seus dados no Supabase.
         </p>
