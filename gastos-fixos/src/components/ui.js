@@ -48,6 +48,7 @@ export const styles = {
     color: "var(--text)",
   },
   btn: {
+
     padding: "10px 12px",
     borderRadius: 12,
     border: "1px solid rgba(255,255,255,.10)",

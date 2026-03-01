@@ -10,6 +10,8 @@ export default function WalletPanel({ userId, items = [], paidExpenseIds = [], r
   const [desc, setDesc] = useState("");
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [receiptFile, setReceiptFile] = useState(null);
+  const [receiptPreview, setReceiptPreview] = useState({});
+  const [receiptLoading, setReceiptLoading] = useState({});
 
   useEffect(() => {
     if (!userId) return;
@@ -81,7 +83,7 @@ export default function WalletPanel({ userId, items = [], paidExpenseIds = [], r
     setLoading(true);
     const { data, error } = await supabase
       .from("wallet_transactions")
-      .select("id, kind, amount, note, description, created_at, ref_expense_id, ref_year, ref_month")
+      .select("id, kind, amount, note, description, created_at, ref_expense_id, ref_year, ref_month, receipt_url, receipt_path")
       .order("created_at", { ascending: false })
       .limit(30);
 
@@ -99,11 +101,13 @@ export default function WalletPanel({ userId, items = [], paidExpenseIds = [], r
     // salva com created_at na data escolhida
     const dt = date ? new Date(`${date}T12:00:00`) : new Date();
 
-    let receiptUrl = null;
+    let receiptPath = null;
 
     if (receiptFile) {
       const ext = receiptFile.name.split(".").pop();
-      const fileName = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+      const ym = (date || new Date().toISOString().slice(0, 10)).slice(0, 7); // YYYY-MM
+      const [y, mo] = ym.split("-");
+      const fileName = `${userId}/${y}/${mo}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
 
       const { error: uploadError } = await supabase.storage
         .from("receipts")
@@ -114,11 +118,7 @@ export default function WalletPanel({ userId, items = [], paidExpenseIds = [], r
         return alert(uploadError.message);
       }
 
-      const { data: publicUrlData } = supabase.storage
-        .from("receipts")
-        .getPublicUrl(fileName);
-
-      receiptUrl = publicUrlData?.publicUrl || null;
+      receiptPath = fileName;
     }
 
     const payload = {
@@ -128,7 +128,7 @@ export default function WalletPanel({ userId, items = [], paidExpenseIds = [], r
       description: desc?.trim() || null,
       note: desc?.trim() || null, // compatibilidade com versões antigas
       created_at: dt.toISOString(),
-      receipt_url: receiptUrl,
+      receipt_path: receiptPath,
     };
 
     setLoading(true);
@@ -138,11 +138,51 @@ export default function WalletPanel({ userId, items = [], paidExpenseIds = [], r
 
     setAmount("");
     setDesc("");
+    setReceiptFile(null);
     fetchWallet();
     onChanged?.();
   }
 
-  async function removeTx(id) {
+  
+  async function openReceipt(row) {
+    try {
+      const key = row.id;
+      if (!row.receipt_path && !row.receipt_url) return;
+      setReceiptLoading((s) => ({ ...s, [key]: true }));
+
+      // Compat: if receipt_url (public) exists, use it
+      if (row.receipt_url) {
+        setReceiptPreview((s) => ({ ...s, [key]: row.receipt_url }));
+        setReceiptLoading((s) => ({ ...s, [key]: false }));
+        return;
+      }
+
+      const { data, error } = await supabase.storage
+        .from("receipts")
+        .createSignedUrl(row.receipt_path, 60 * 10); // 10 min
+
+      if (error) {
+        setReceiptLoading((s) => ({ ...s, [key]: false }));
+        return alert(error.message);
+      }
+
+      const url = data?.signedUrl || null;
+      setReceiptPreview((s) => ({ ...s, [key]: url }));
+      setReceiptLoading((s) => ({ ...s, [key]: false }));
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  function clearReceiptPreview(id) {
+    setReceiptPreview((s) => {
+      const next = { ...s };
+      delete next[id];
+      return next;
+    });
+  }
+
+async function removeTx(id) {
     if (!confirm("Remover este lançamento da carteira?")) return;
     setLoading(true);
     const { error } = await supabase.from("wallet_transactions").delete().eq("id", id);
@@ -222,6 +262,7 @@ export default function WalletPanel({ userId, items = [], paidExpenseIds = [], r
               style={styles.input}
               type="file"
               accept="image/*,application/pdf"
+              title="Comprovante (imagem/PDF)"
               onChange={(e) => setReceiptFile(e.target.files?.[0] || null)}
             />
             <input

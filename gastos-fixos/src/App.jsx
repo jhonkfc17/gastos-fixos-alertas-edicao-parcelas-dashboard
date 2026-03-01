@@ -7,6 +7,7 @@ import ExpenseForm from "./components/ExpenseForm";
 import ExpenseList from "./components/ExpenseList";
 import MonthlyControl from "./components/MonthlyControl";
 import WalletPanel from "./components/WalletPanel";
+import PaymentHistory from "./components/PaymentHistory";
 import { styles, ymLabel } from "./components/ui";
 import { downloadTextFile, toCSV } from "./lib/csv";
 
@@ -200,6 +201,11 @@ export default function App() {
             <b>Carteira:</b> entradas manuais + saídas automáticas ao marcar pagamentos do mês (suporta pagamento parcial).
           </div>
         </div>
+
+        <div style={{ marginTop: 14 }}>
+          <PaymentHistory userId={session.user.id} defaultYear={ym.year} defaultMonth={ym.month} />
+        </div>
+
       </div>
     </div>
   );
