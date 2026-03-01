@@ -162,7 +162,12 @@ export default function MonthlyControl({items, userId, year, month, onChangeYM, 
         // remove possíveis duplicados
         await baseWhere(supabase.from("wallet_transactions").delete());
 
-        const label = `${exp.name} • ${ymLabel(localYear, localMonth)}`;
+        const installmentSuffix =
+          exp?.is_installment && info?.installmentIndex && info?.installmentTotal
+            ? ` • Parcela ${info.installmentIndex}/${info.installmentTotal}`
+            : "";
+
+        const label = `${exp.name}${installmentSuffix} • ${ymLabel(localYear, localMonth)}`;
         const { error } = await supabase.from("wallet_transactions").insert({
           user_id: userId,
           kind: "expense_payment",
