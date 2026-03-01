@@ -15,7 +15,7 @@ import {
 } from "recharts";
 import { CHART_COLORS, DarkTooltip, axisLine, axisTick, gridStroke } from "./chartTheme";
 
-export default function MonthlyControl({ items, userId, year, month, onChangeYM, onStatusChange }) {
+export default function MonthlyControl({items, userId, year, month, onChangeYM, onStatusChange, onWalletChanged}) {
   const today = new Date();
   const [localYear, setLocalYear] = useState(year ?? today.getFullYear());
   const [localMonth, setLocalMonth] = useState(month ?? today.getMonth() + 1);
@@ -136,6 +136,7 @@ export default function MonthlyControl({ items, userId, year, month, onChangeYM,
 
     // Saída automática na carteira (GLOBAL) quando marcar como pago
     await syncWalletForExpense(exp, nextPaid, paidAmount);
+    onWalletChanged?.();
 
     fetchStatus();
   }
@@ -223,6 +224,7 @@ export default function MonthlyControl({ items, userId, year, month, onChangeYM,
       }
     }
 
+    onWalletChanged?.();
     fetchStatus();
   }
 

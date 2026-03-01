@@ -15,6 +15,7 @@ export default function App() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [walletRefresh, setWalletRefresh] = useState(0);
 
   const [ym, setYm] = useState(() => {
     const d = new Date();
@@ -166,7 +167,7 @@ export default function App() {
         </div>
 
         <div style={{ marginTop: 14 }}>
-          <WalletPanel userId={session.user.id} ym={ym} />
+          <WalletPanel userId={session.user.id} refreshKey={walletRefresh} onChanged={() => setWalletRefresh((v) => v + 1)} />
         </div>
 
         <div style={{ marginTop: 14 }}>
@@ -184,7 +185,7 @@ export default function App() {
         </div>
 
         <div style={{ marginTop: 14 }}>
-          <MonthlyControl items={items} userId={session.user.id} year={ym.year} month={ym.month} onChangeYM={setYm} />
+          <MonthlyControl items={items} userId={session.user.id} year={ym.year} month={ym.month} onChangeYM={setYm} onWalletChanged={() => setWalletRefresh((v) => v + 1)} />
           <div style={{ ...styles.muted, fontSize: 13, marginTop: 10, lineHeight: 1.35 }}>
             <b>Carteira:</b> entradas manuais + saídas automáticas ao marcar pagamentos do mês (suporta pagamento parcial).
           </div>
