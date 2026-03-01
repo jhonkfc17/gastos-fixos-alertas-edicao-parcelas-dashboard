@@ -42,10 +42,45 @@ export default function App() {
     setItems(data ?? []);
   }
 
-  async function addExpense(payload) {
+  async function addExpense(form) {
+    const parseMoney = (v) => {
+      if (v === null || v === undefined) return null;
+      const s = String(v).trim()
+        .replace(/\./g, "")
+        .replace(",", ".");
+      const n = Number(s);
+      return Number.isFinite(n) ? n : null;
+    };
+
+    const userId = session?.user?.id;
+
+    const payload = {
+      user_id: userId,
+      name: form.name?.trim(),
+      category: form.category,
+      amount: form.isInstallment
+        ? parseMoney(form.totalAmount) / Number(form.installments)
+        : parseMoney(form.amount),
+      due_day: Number(form.dueDay),
+      payment_method: form.payment,
+      active: !!form.active,
+      is_installment: !!form.isInstallment,
+      installment_total_amount: form.isInstallment ? parseMoney(form.totalAmount) : null,
+      installment_total: form.isInstallment ? Number(form.installments) : null,
+      installment_start_month: form.isInstallment ? Number(form.startMonth) : null,
+      installment_start_year: form.isInstallment ? Number(form.startYear) : null,
+    };
+
+    if (!payload.user_id) return alert("Sessão inválida: usuário não encontrado.");
+    if (!payload.name) return alert("Informe o nome do gasto.");
+    if (!Number.isFinite(payload.amount)) return alert("Valor inválido.");
+    if (!Number.isFinite(payload.due_day) || payload.due_day < 1 || payload.due_day > 31)
+      return alert("Dia inválido (1-31).");
+
     setSaving(true);
     const { error } = await supabase.from("fixed_expenses").insert(payload);
     setSaving(false);
+
     if (error) return alert(error.message);
     fetchItems();
   }
@@ -135,7 +170,7 @@ export default function App() {
         </div>
 
         <div style={{ marginTop: 14 }}>
-          <ExpenseForm saving={saving} onAdd={addExpense} />
+          <ExpenseForm loading={saving} onAdd={addExpense} />
         </div>
 
         <div style={{ marginTop: 14 }}>
