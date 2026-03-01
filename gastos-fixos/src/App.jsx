@@ -16,6 +16,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [walletRefresh, setWalletRefresh] = useState(0);
+  const [paidExpenseIds, setPaidExpenseIds] = useState([]);
 
   const [ym, setYm] = useState(() => {
     const d = new Date();
@@ -41,6 +42,15 @@ export default function App() {
     setLoading(false);
     if (error) return alert(error.message);
     setItems(data ?? []);
+  }
+
+
+  function handleStatusChange(y, m, rows) {
+    // Atualiza ids pagos apenas para o mês atual (Dashboard usa mês atual)
+    const now = new Date();
+    if (y !== now.getFullYear() || m !== now.getMonth() + 1) return;
+    const paid = (rows ?? []).filter((r) => r.paid).map((r) => r.expense_id);
+    setPaidExpenseIds(paid);
   }
 
   async function addExpense(form) {
@@ -163,11 +173,11 @@ export default function App() {
         />
 
         <div style={{ marginTop: 14 }}>
-          <Dashboard items={items} />
+          <Dashboard items={items} paidExpenseIds={paidExpenseIds} />
         </div>
 
         <div style={{ marginTop: 14 }}>
-          <WalletPanel userId={session.user.id} refreshKey={walletRefresh} onChanged={() => setWalletRefresh((v) => v + 1)} />
+          <WalletPanel userId={session.user.id} items={items} paidExpenseIds={paidExpenseIds} refreshKey={walletRefresh} onChanged={() => setWalletRefresh((v) => v + 1)} />
         </div>
 
         <div style={{ marginTop: 14 }}>
@@ -185,7 +195,7 @@ export default function App() {
         </div>
 
         <div style={{ marginTop: 14 }}>
-          <MonthlyControl items={items} userId={session.user.id} year={ym.year} month={ym.month} onChangeYM={setYm} onWalletChanged={() => setWalletRefresh((v) => v + 1)} />
+          <MonthlyControl items={items} userId={session.user.id} year={ym.year} month={ym.month} onChangeYM={setYm} onStatusChange={handleStatusChange} onWalletChanged={() => setWalletRefresh((v) => v + 1)} />
           <div style={{ ...styles.muted, fontSize: 13, marginTop: 10, lineHeight: 1.35 }}>
             <b>Carteira:</b> entradas manuais + saídas automáticas ao marcar pagamentos do mês (suporta pagamento parcial).
           </div>
