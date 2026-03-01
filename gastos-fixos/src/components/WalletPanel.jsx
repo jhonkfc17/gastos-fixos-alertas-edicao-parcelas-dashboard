@@ -9,6 +9,7 @@ export default function WalletPanel({ userId, items = [], paidExpenseIds = [], r
   const [amount, setAmount] = useState("");
   const [desc, setDesc] = useState("");
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [receiptFile, setReceiptFile] = useState(null);
 
   useEffect(() => {
     if (!userId) return;
@@ -98,6 +99,28 @@ export default function WalletPanel({ userId, items = [], paidExpenseIds = [], r
     // salva com created_at na data escolhida
     const dt = date ? new Date(`${date}T12:00:00`) : new Date();
 
+    let receiptUrl = null;
+
+    if (receiptFile) {
+      const ext = receiptFile.name.split(".").pop();
+      const fileName = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("receipts")
+        .upload(fileName, receiptFile);
+
+      if (uploadError) {
+        setLoading(false);
+        return alert(uploadError.message);
+      }
+
+      const { data: publicUrlData } = supabase.storage
+        .from("receipts")
+        .getPublicUrl(fileName);
+
+      receiptUrl = publicUrlData?.publicUrl || null;
+    }
+
     const payload = {
       user_id: userId,
       kind: v > 0 ? "income" : "manual_expense",
@@ -105,6 +128,7 @@ export default function WalletPanel({ userId, items = [], paidExpenseIds = [], r
       description: desc?.trim() || null,
       note: desc?.trim() || null, // compatibilidade com versões antigas
       created_at: dt.toISOString(),
+      receipt_url: receiptUrl,
     };
 
     setLoading(true);
@@ -194,6 +218,12 @@ export default function WalletPanel({ userId, items = [], paidExpenseIds = [], r
               />
               <input style={styles.input} type="date" value={date} onChange={(e) => setDate(e.target.value)} />
             </div>
+            <input
+              style={styles.input}
+              type="file"
+              accept="image/*,application/pdf"
+              onChange={(e) => setReceiptFile(e.target.files?.[0] || null)}
+            />
             <input
               style={styles.input}
               placeholder="Descrição (opcional)"
