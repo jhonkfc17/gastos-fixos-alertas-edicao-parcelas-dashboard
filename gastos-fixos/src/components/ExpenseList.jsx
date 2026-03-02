@@ -2,7 +2,7 @@ import React, { useMemo, useState } from "react";
 import { installmentEndLabel, isInstallmentCompleted, moneyBRL, styles } from "./ui";
 import EditExpenseModal from "./EditExpenseModal";
 
-const categories = ["Todas", "Moradia", "Contas", "Assinaturas", "Transporte", "Saúde", "Outros"];
+const categories = ["Todas", "Moradia", "Contas", "Assinaturas", "Transporte", "Combustível", "Saúde", "Outros"];
 
 export default function ExpenseList({ items, onToggleActive, onRemove, onUpdateAmount, onUpdateFields }) {
   const [filter, setFilter] = useState({ category: "Todas", status: "Ativos", q: "", sort: "created" });
@@ -167,7 +167,7 @@ function Row({ item, onToggleActive, onRemove, onUpdateAmount, onUpdateFields, o
             value={item.category || "Outros"}
             onChange={(e) => onUpdateFields?.(item.id, { category: e.target.value })}
           >
-            {["Moradia", "Contas", "Assinaturas", "Transporte", "Saúde", "Outros"].map((c) => (
+            {["Moradia", "Contas", "Assinaturas", "Transporte", "Combustível", "Saúde", "Outros"].map((c) => (
               <option key={c} value={c}>{c}</option>
             ))}
           </select>
