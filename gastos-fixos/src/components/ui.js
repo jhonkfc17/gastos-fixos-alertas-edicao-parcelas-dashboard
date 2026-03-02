@@ -90,6 +90,76 @@ export function formatBRL(value) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number.isFinite(n) ? n : 0);
 }
 
+export const moneyBRL = formatBRL;
+
+function ymToIndex(year, month) {
+  return Number(year) * 12 + (Number(month) - 1);
+}
+
+function installmentBounds(item) {
+  const total = Number(item?.installment_total);
+  const startMonth = Number(item?.installment_start_month);
+  const startYear = Number(item?.installment_start_year);
+
+  if (!Number.isFinite(total) || total <= 0) return null;
+  if (!Number.isFinite(startMonth) || startMonth < 1 || startMonth > 12) return null;
+  if (!Number.isFinite(startYear) || startYear < 1) return null;
+
+  const start = ymToIndex(startYear, startMonth);
+  const end = start + total - 1;
+  return { start, end, total, startMonth, startYear };
+}
+
+export function expenseMonthInfo(item, year, month) {
+  const isInstallment = Boolean(item?.is_installment);
+  if (!isInstallment) {
+    return {
+      applicable: true,
+      isInstallment: false,
+      installmentNumber: null,
+      installmentTotal: null,
+    };
+  }
+
+  const bounds = installmentBounds(item);
+  if (!bounds) {
+    return {
+      applicable: true,
+      isInstallment: true,
+      installmentNumber: null,
+      installmentTotal: Number(item?.installment_total) || null,
+    };
+  }
+
+  const current = ymToIndex(year, month);
+  const applicable = current >= bounds.start && current <= bounds.end;
+  const installmentNumber = applicable ? current - bounds.start + 1 : null;
+
+  return {
+    applicable,
+    isInstallment: true,
+    installmentNumber,
+    installmentTotal: bounds.total,
+  };
+}
+
+export function isInstallmentCompleted(item, year, month) {
+  if (!item?.is_installment) return false;
+  const bounds = installmentBounds(item);
+  if (!bounds) return false;
+  const current = ymToIndex(year, month);
+  return current > bounds.end;
+}
+
+export function installmentEndLabel(item) {
+  if (!item?.is_installment) return null;
+  const bounds = installmentBounds(item);
+  if (!bounds) return null;
+  const endYear = Math.floor(bounds.end / 12);
+  const endMonth = (bounds.end % 12) + 1;
+  return `${String(endMonth).padStart(2, "0")}/${endYear}`;
+}
+
 export function nextDueDate(dueDay) {
   const today = new Date()
   const currentMonth = today.getMonth()
