@@ -23,6 +23,7 @@ export default function MonthlyControl({ userId, onPaymentRegistered }) {
   const [payAmount, setPayAmount] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("PIX");
   const [receiptFile, setReceiptFile] = useState(null);
+  const [receiptError, setReceiptError] = useState("");
 
   const [paying, setPaying] = useState(false);
 
@@ -86,7 +87,25 @@ export default function MonthlyControl({ userId, onPaymentRegistered }) {
     setPayAmount(String(row.e.amount ?? ""));
     setPaymentMethod(row.e.payment_method || "PIX");
     setReceiptFile(null);
+    setReceiptError("");
     setOpen(true);
+  }
+
+  function handleReceiptChange(file) {
+    setReceiptError("");
+    if (!file) {
+      setReceiptFile(null);
+      return;
+    }
+
+    const maxSize = 10 * 1024 * 1024; // 10MB
+    if (file.size > maxSize) {
+      setReceiptFile(null);
+      setReceiptError("Arquivo muito grande. Limite de 10MB.");
+      return;
+    }
+
+    setReceiptFile(file);
   }
 
   async function markPaid(row, { receiptUrl = null } = {}) {
@@ -173,10 +192,9 @@ export default function MonthlyControl({ userId, onPaymentRegistered }) {
       if (receiptFile) {
         const { publicUrl, error } = await uploadReceiptFile({ supabase, file: receiptFile, userId });
         if (error) {
-          alert(`Falha ao enviar comprovante: ${error.message}`);
-        } else {
-          receiptUrl = publicUrl;
+          throw new Error(`Falha ao enviar comprovante: ${error.message}`);
         }
+        receiptUrl = publicUrl;
       }
 
       await markPaid(selected, { receiptUrl });
@@ -319,7 +337,20 @@ export default function MonthlyControl({ userId, onPaymentRegistered }) {
 
               <div style={{ gridColumn: "1 / -1" }}>
                 <div style={styles.muted}>Comprovante (opcional)</div>
-                <input type="file" onChange={(e) => setReceiptFile(e.target.files?.[0] || null)} style={styles.input} />
+                <input
+                  type="file"
+                  accept="image/*,.pdf"
+                  onChange={(e) => handleReceiptChange(e.target.files?.[0] || null)}
+                  style={styles.input}
+                />
+                {receiptFile ? (
+                  <div style={{ ...styles.muted, fontSize: 12, marginTop: 6 }}>
+                    Arquivo selecionado: {receiptFile.name}
+                  </div>
+                ) : null}
+                {receiptError ? (
+                  <div style={{ color: "#ff8b8b", fontSize: 12, marginTop: 6 }}>{receiptError}</div>
+                ) : null}
               </div>
             </div>
 
