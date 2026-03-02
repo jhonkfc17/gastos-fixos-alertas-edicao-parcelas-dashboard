@@ -89,3 +89,17 @@ export function formatBRL(value) {
   const n = typeof value === "number" ? value : Number(value || 0);
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number.isFinite(n) ? n : 0);
 }
+
+export function nextDueDate(dueDay) {
+  const today = new Date()
+  const currentMonth = today.getMonth()
+  const currentYear = today.getFullYear()
+
+  let dueDate = new Date(currentYear, currentMonth, dueDay)
+
+  if (today > dueDate) {
+    dueDate = new Date(currentYear, currentMonth + 1, dueDay)
+  }
+
+  return dueDate.toISOString()
+}
