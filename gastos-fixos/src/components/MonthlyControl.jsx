@@ -159,10 +159,12 @@ export default function MonthlyControl({ userId, items = [], onPaymentRegistered
     // 2) Insert wallet transaction (safe if optional columns don't exist)
     const baseTx = {
       user_id: userId,
+      kind: "expense_payment",
       type: "expense",
       amount,
       category: row.e.category,
       description: row.e.name,
+      note: row.e.name,
       created_at: now.toISOString(),
     };
 
@@ -178,7 +180,16 @@ export default function MonthlyControl({ userId, items = [], onPaymentRegistered
           : null,
     };
 
-    const fallbackTx = { ...baseTx };
+    // Minimal payload for schemas that don't have optional columns
+    // like category/type/receipt/installment references yet.
+    const fallbackTx = {
+      user_id: userId,
+      kind: "expense_payment",
+      amount,
+      description: row.e.name,
+      note: row.e.name,
+      created_at: now.toISOString(),
+    };
 
     const { error: txErr } = await safeInsert(
       supabase,

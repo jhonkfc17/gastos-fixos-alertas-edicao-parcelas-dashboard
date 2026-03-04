@@ -52,7 +52,7 @@ export default function PaymentHistory({ userId, refreshKey }) {
     const q = query.trim().toLowerCase();
     if (!q) return rows;
     return rows.filter((r) => {
-      const s = `${r.description || ""} ${r.category || ""} ${r.type || ""}`.toLowerCase();
+      const s = `${r.description || ""} ${r.category || ""} ${r.type || r.kind || ""}`.toLowerCase();
       return s.includes(q);
     });
   }, [rows, query]);
@@ -129,7 +129,7 @@ export default function PaymentHistory({ userId, refreshKey }) {
                       <td style={styles.td}>{dt ? dt.toLocaleString("pt-BR") : "-"}</td>
                       <td style={styles.td}>{r.description || "-"}</td>
                       <td style={styles.td}>{r.category || "-"}</td>
-                      <td style={styles.td}>{r.type || "-"}</td>
+                      <td style={styles.td}>{r.type || r.kind || "-"}</td>
                       <td style={{ ...styles.td, textAlign: "right" }}>{formatBRL(r.amount)}</td>
                       <td style={styles.td}>{parcela || "-"}</td>
                       <td style={styles.td}>
