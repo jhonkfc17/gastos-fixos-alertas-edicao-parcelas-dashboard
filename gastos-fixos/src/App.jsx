@@ -566,7 +566,7 @@ export default function App() {
           <div
             style={{
               width: "min(560px, 100%)",
-              background: "var(--card)",
+              background: "var(--bg2)",
               border: "1px solid var(--border)",
               borderRadius: 16,
               boxShadow: "var(--shadow)",
