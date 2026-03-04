@@ -68,7 +68,10 @@ export default function App() {
 
   function isMissingColumnError(error, column) {
     const msg = String(error?.message || "").toLowerCase();
-    return msg.includes(`column wallet_transactions.${String(column).toLowerCase()} does not exist`);
+    const col = String(column).toLowerCase();
+    const mentionsTableAndColumn =
+      msg.includes("wallet_transactions") && (msg.includes(col) || msg.includes(`'${col}'`));
+    return mentionsTableAndColumn && (msg.includes("does not exist") || msg.includes("schema cache") || msg.includes("could not find"));
   }
 
   function openPayDialog({ expenseName, suggestedAmount }) {

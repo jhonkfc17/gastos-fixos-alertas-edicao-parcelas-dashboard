@@ -4,7 +4,10 @@ import { expenseMonthInfo, moneyBRL, parseMoneyInput, roundMoney, styles } from 
 
 function isMissingColumnError(error, column) {
   const msg = String(error?.message || "").toLowerCase();
-  return msg.includes(`column wallet_transactions.${String(column).toLowerCase()} does not exist`);
+  const col = String(column).toLowerCase();
+  const mentionsTableAndColumn =
+    msg.includes("wallet_transactions") && (msg.includes(col) || msg.includes(`'${col}'`));
+  return mentionsTableAndColumn && (msg.includes("does not exist") || msg.includes("schema cache") || msg.includes("could not find"));
 }
 
 // Carteira GLOBAL (saldo total). Mantem ref_year/ref_month apenas como referencia.

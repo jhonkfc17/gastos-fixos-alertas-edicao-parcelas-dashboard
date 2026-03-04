@@ -12,6 +12,14 @@ export default function PaymentHistory({ userId, defaultYear, defaultMonth }) {
   const [kindFilter, setKindFilter] = useState("all");
   const [receiptLoading, setReceiptLoading] = useState({});
 
+  function isMissingColumnError(error, column) {
+    const msg = String(error?.message || "").toLowerCase();
+    const col = String(column).toLowerCase();
+    const mentionsTableAndColumn =
+      msg.includes("wallet_transactions") && (msg.includes(col) || msg.includes(`'${col}'`));
+    return mentionsTableAndColumn && (msg.includes("does not exist") || msg.includes("schema cache") || msg.includes("could not find"));
+  }
+
   useEffect(() => {
     if (defaultYear) setYear(defaultYear);
     if (defaultMonth) setMonth(defaultMonth);
@@ -43,7 +51,7 @@ export default function PaymentHistory({ userId, defaultYear, defaultMonth }) {
     if (kindFilter === "variable") query = query.eq("kind", "manual_expense");
 
     let { data, error } = await query;
-    if (String(error?.message || "").toLowerCase().includes("column wallet_transactions.receipt_path does not exist")) {
+    if (isMissingColumnError(error, "receipt_path") || isMissingColumnError(error, "receipt_url")) {
       const fallback = await supabase
         .from("wallet_transactions")
         .select(baseSelect)
