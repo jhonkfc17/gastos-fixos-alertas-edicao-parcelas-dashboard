@@ -43,7 +43,7 @@ export default function Dashboard({ items, paidExpenseIds = [] }) {
     return [...activeThisMonth]
       .filter((i) => !paidSet.has(i.id))
       .map((i) => {
-        const due = new Date(nextDueDate(i.due_day));
+        const due = nextDueDate(i.due_day);
         return { ...i, _due: due };
       })
       .sort((a, b) => a._due - b._due)
