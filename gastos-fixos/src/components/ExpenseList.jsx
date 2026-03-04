@@ -160,6 +160,17 @@ function Row({ item, paid, selectedYM, onTogglePaid, onToggleActive, onRemove, o
   const endLabel = item.is_installment ? installmentEndLabel(item) : null;
   const info = expenseMonthInfo(item, selectedYM?.year ?? now.getFullYear(), selectedYM?.month ?? now.getMonth() + 1);
   const canMark = Boolean(item.active) && info.applicable;
+  const rowYear = Number(selectedYM?.year ?? now.getFullYear());
+  const rowMonth = Number(selectedYM?.month ?? now.getMonth() + 1);
+  const isCurrentMonth = rowYear === now.getFullYear() && rowMonth === now.getMonth() + 1;
+  const isOverdue = canMark && !paid && isCurrentMonth && Number(item.due_day || 0) < now.getDate();
+  const rowBg = !canMark
+    ? "transparent"
+    : paid
+      ? "rgba(34,197,94,.18)"
+      : isOverdue
+        ? "rgba(239,68,68,.18)"
+        : "rgba(245,158,11,.18)";
 
   const categoryOptions = [...new Set([...baseCategories, String(item.category || "").trim()].filter(Boolean))];
 
@@ -170,7 +181,7 @@ function Row({ item, paid, selectedYM, onTogglePaid, onToggleActive, onRemove, o
         padding: 12,
         alignItems: "center",
         borderBottom: "1px solid var(--border)",
-        background: canMark && paid ? "rgba(34,197,94,.18)" : "transparent",
+        background: rowBg,
         boxShadow: "none",
       }}
     >

@@ -404,6 +404,13 @@ export default function MonthlyControl({
           orderedApplicableItems.map((exp) => {
             const paid = paidSet.has(exp.id);
             const badge = paid ? "Pago" : "Pendente";
+            const isCurrentMonth = localYear === today.getFullYear() && localMonth === today.getMonth() + 1;
+            const isOverdue = !paid && isCurrentMonth && Number(exp.due_day || 0) < today.getDate();
+            const rowBg = paid
+              ? "rgba(34,197,94,.18)"
+              : isOverdue
+                ? "rgba(239,68,68,.18)"
+                : "rgba(245,158,11,.18)";
             return (
               <div
                 key={exp.id}
@@ -414,7 +421,7 @@ export default function MonthlyControl({
                   gap: 10,
                   padding: 12,
                   borderTop: "1px solid var(--border)",
-                  background: paid ? "rgba(34,197,94,.18)" : "transparent",
+                  background: rowBg,
                   boxShadow: "none",
                 }}
               >
