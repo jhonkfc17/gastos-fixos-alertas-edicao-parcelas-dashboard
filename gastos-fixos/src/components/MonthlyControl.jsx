@@ -263,6 +263,14 @@ export default function MonthlyControl({
     return set;
   }, [status]);
 
+  const orderedApplicableItems = useMemo(() => {
+    return [...applicableItems].sort((a, b) => {
+      const aPaid = paidSet.has(a.id) ? 1 : 0;
+      const bPaid = paidSet.has(b.id) ? 1 : 0;
+      return aPaid - bPaid;
+    });
+  }, [applicableItems, paidSet]);
+
   const totalMonth = useMemo(() => {
     return applicableItems.reduce((acc, i) => acc + Number(i.amount || 0), 0) + Number(variableSpentMonth || 0);
   }, [applicableItems, variableSpentMonth]);
@@ -390,10 +398,10 @@ export default function MonthlyControl({
         <div style={{ padding: 12, background: "var(--card2)", fontWeight: 800, borderBottom: "1px solid var(--border)" }}>
           Gastos do mes
         </div>
-        {applicableItems.length === 0 ? (
+        {orderedApplicableItems.length === 0 ? (
           <div style={{ padding: 12, ...styles.muted }}>Nenhum gasto aplicavel no mes.</div>
         ) : (
-          applicableItems.map((exp) => {
+          orderedApplicableItems.map((exp) => {
             const paid = paidSet.has(exp.id);
             const badge = paid ? "Pago" : "Pendente";
             return (
