@@ -1,12 +1,23 @@
 import React, { useMemo, useState } from "react";
-import { installmentEndLabel, isInstallmentCompleted, moneyBRL, styles } from "./ui";
+import { installmentEndLabel, isInstallmentCompleted, moneyBRL, styles, ymLabel } from "./ui";
 import EditExpenseModal from "./EditExpenseModal";
 
-const categories = ["Todas", "Moradia", "Contas", "Assinaturas", "Transporte", "Combustível", "Saúde", "Outros"];
+const categories = ["Todas", "Moradia", "Contas", "Assinaturas", "Transporte", "Combustivel", "Saude", "Outros"];
 
-export default function ExpenseList({ items, onToggleActive, onRemove, onUpdateAmount, onUpdateFields }) {
+export default function ExpenseList({
+  items,
+  paidExpenseIds = [],
+  selectedYM,
+  onTogglePaid,
+  onToggleActive,
+  onRemove,
+  onUpdateAmount,
+  onUpdateFields,
+}) {
   const [filter, setFilter] = useState({ category: "Todas", status: "Ativos", q: "", sort: "created" });
   const [editing, setEditing] = useState(null);
+
+  const paidSet = useMemo(() => new Set(paidExpenseIds ?? []), [paidExpenseIds]);
 
   const filtered = useMemo(() => {
     const list = items ?? [];
@@ -33,7 +44,9 @@ export default function ExpenseList({ items, onToggleActive, onRemove, onUpdateA
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "end", gap: 12, flexWrap: "wrap" }}>
         <div>
           <div style={{ fontWeight: 800, fontSize: 16 }}>Meus gastos</div>
-          <div style={{ ...styles.muted, fontSize: 13 }}>Edite valor e saia do campo para salvar.</div>
+          <div style={{ ...styles.muted, fontSize: 13 }}>
+            Edite valor e saia do campo para salvar. Marcar pagamento em {ymLabel(selectedYM?.year, selectedYM?.month)}.
+          </div>
         </div>
 
         <div className="expenseFilters" style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -68,7 +81,7 @@ export default function ExpenseList({ items, onToggleActive, onRemove, onUpdateA
             style={{ ...styles.input, width: 170 }}
             value={filter.sort}
             onChange={(e) => setFilter((p) => ({ ...p, sort: e.target.value }))}
-            title="Ordenação"
+            title="Ordenacao"
           >
             <option value="created">Mais recentes</option>
             <option value="due">Vencimento</option>
@@ -88,6 +101,8 @@ export default function ExpenseList({ items, onToggleActive, onRemove, onUpdateA
             <Row
               key={x.id}
               item={x}
+              paid={paidSet.has(x.id)}
+              onTogglePaid={onTogglePaid}
               onToggleActive={onToggleActive}
               onRemove={onRemove}
               onUpdateAmount={onUpdateAmount}
@@ -121,12 +136,12 @@ function HeaderRow() {
       <div>Categoria</div>
       <div>Venc.</div>
       <div>Valor</div>
-      <div>Ações</div>
+      <div>Acoes</div>
     </div>
   );
 }
 
-function Row({ item, onToggleActive, onRemove, onUpdateAmount, onUpdateFields, onEdit }) {
+function Row({ item, paid, onTogglePaid, onToggleActive, onRemove, onUpdateAmount, onUpdateFields, onEdit }) {
   const now = new Date();
   const completed = item.is_installment ? isInstallmentCompleted(item, now.getFullYear(), now.getMonth() + 1) : false;
   const endLabel = item.is_installment ? installmentEndLabel(item) : null;
@@ -142,17 +157,17 @@ function Row({ item, onToggleActive, onRemove, onUpdateAmount, onUpdateFields, o
           {!item.active && <span style={{ ...styles.muted, fontWeight: 500 }}>(inativo)</span>}
         </div>
         <div style={{ ...styles.muted, fontSize: 13 }}>
-          Pagamento: {item.payment_method || "—"}
+          Pagamento: {item.payment_method || "-"}
         </div>
         {item.is_installment ? (
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <span style={styles.badge}>Parcelado</span>
-            {completed ? <span style={styles.badge}>Concluída</span> : null}
+            {completed ? <span style={styles.badge}>Concluida</span> : null}
             <span style={styles.badge}>
-              {item.installment_total_amount != null ? `Total ${moneyBRL(item.installment_total_amount)}` : "Total —"}
+              {item.installment_total_amount != null ? `Total ${moneyBRL(item.installment_total_amount)}` : "Total -"}
             </span>
             <span style={styles.badge}>
-              {item.installment_total ? `${item.installment_total}x` : "—x"} • início {item.installment_start_month}/{item.installment_start_year}
+              {item.installment_total ? `${item.installment_total}x` : "-x"} - inicio {item.installment_start_month}/{item.installment_start_year}
             </span>
             {endLabel ? <span style={styles.badge}>fim {endLabel}</span> : null}
           </div>
@@ -167,7 +182,7 @@ function Row({ item, onToggleActive, onRemove, onUpdateAmount, onUpdateFields, o
             value={item.category || "Outros"}
             onChange={(e) => onUpdateFields?.(item.id, { category: e.target.value })}
           >
-            {["Moradia", "Contas", "Assinaturas", "Transporte", "Combustível", "Saúde", "Outros"].map((c) => (
+            {["Moradia", "Contas", "Assinaturas", "Transporte", "Combustivel", "Saude", "Outros"].map((c) => (
               <option key={c} value={c}>{c}</option>
             ))}
           </select>
@@ -194,6 +209,12 @@ function Row({ item, onToggleActive, onRemove, onUpdateAmount, onUpdateFields, o
       </div>
 
       <div className="expenseActions" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ ...styles.badge, background: paid ? "rgba(34,197,94,.16)" : "rgba(245,158,11,.14)" }}>
+          {paid ? "Pago" : "Pendente"}
+        </span>
+        <button style={paid ? styles.btnGhost : styles.btn} type="button" onClick={() => onTogglePaid?.(item.id)}>
+          {paid ? "Desfazer" : "Marcar"}
+        </button>
         <button style={styles.btn} type="button" onClick={() => onToggleActive?.(item.id, item.active)}>
           {item.active ? "Desativar" : "Ativar"}
         </button>
