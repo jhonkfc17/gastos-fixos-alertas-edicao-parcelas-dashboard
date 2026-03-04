@@ -2,6 +2,11 @@ import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { expenseMonthInfo, moneyBRL, parseMoneyInput, roundMoney, styles } from "./ui";
 
+function isMissingColumnError(error, column) {
+  const msg = String(error?.message || "").toLowerCase();
+  return msg.includes(`column wallet_transactions.${String(column).toLowerCase()} does not exist`);
+}
+
 // Carteira GLOBAL (saldo total). Mantem ref_year/ref_month apenas como referencia.
 export default function WalletPanel({ userId, items = [], paidExpenseIds = [], refreshKey, onChanged }) {
   const [loading, setLoading] = useState(false);
@@ -74,12 +79,24 @@ export default function WalletPanel({ userId, items = [], paidExpenseIds = [], r
 
   async function fetchWallet() {
     setLoading(true);
-    const { data, error } = await supabase
+    const baseSelect = "id, kind, amount, note, description, created_at, ref_expense_id, ref_year, ref_month";
+    let { data, error } = await supabase
       .from("wallet_transactions")
-      .select("id, kind, amount, note, description, created_at, ref_expense_id, ref_year, ref_month, receipt_url, receipt_path")
+      .select(`${baseSelect}, receipt_url, receipt_path`)
       .eq("user_id", userId)
       .order("created_at", { ascending: false })
       .limit(30);
+
+    if (error && (isMissingColumnError(error, "receipt_path") || isMissingColumnError(error, "receipt_url"))) {
+      const fallback = await supabase
+        .from("wallet_transactions")
+        .select(baseSelect)
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(30);
+      data = fallback.data;
+      error = fallback.error;
+    }
 
     setLoading(false);
     if (error) return alert(error.message);
@@ -114,11 +131,18 @@ export default function WalletPanel({ userId, items = [], paidExpenseIds = [], r
       description: desc?.trim() || null,
       note: desc?.trim() || null,
       created_at: dt.toISOString(),
-      receipt_path: receiptPath,
     };
 
     setLoading(true);
-    const { error } = await supabase.from("wallet_transactions").insert(payload);
+    let { error } = await supabase.from("wallet_transactions").insert(
+      receiptPath ? { ...payload, receipt_path: receiptPath } : payload
+    );
+
+    if (error && receiptPath && isMissingColumnError(error, "receipt_path")) {
+      const fallback = await supabase.from("wallet_transactions").insert(payload);
+      error = fallback.error || null;
+      if (!error) alert("Lancamento salvo sem comprovante (coluna receipt_path ausente no banco).");
+    }
     setLoading(false);
     if (error) return alert(error.message);
 
