@@ -546,7 +546,7 @@ export default function App() {
         </div>
 
         <div style={{ marginTop: 14 }}>
-          <PaymentHistory userId={session.user.id} defaultYear={ym.year} defaultMonth={ym.month} />
+          <PaymentHistory userId={session.user.id} defaultYear={ym.year} defaultMonth={ym.month} onChanged={() => setWalletRefresh((v) => v + 1)} />
         </div>
       </div>
 

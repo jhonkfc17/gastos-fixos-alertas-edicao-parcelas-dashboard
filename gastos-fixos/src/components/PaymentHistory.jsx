@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
-import { moneyBRL, styles, ymLabel } from "./ui";
+import { formatMoneyInput, moneyBRL, parseMoneyInput, roundMoney, styles, ymLabel } from "./ui";
 
-export default function PaymentHistory({ userId, defaultYear, defaultMonth }) {
+export default function PaymentHistory({ userId, defaultYear, defaultMonth, onChanged }) {
   const now = new Date();
   const [year, setYear] = useState(defaultYear ?? now.getFullYear());
   const [month, setMonth] = useState(defaultMonth ?? now.getMonth() + 1);
@@ -12,6 +12,8 @@ export default function PaymentHistory({ userId, defaultYear, defaultMonth }) {
   const [kindFilter, setKindFilter] = useState("all");
   const [receiptLoading, setReceiptLoading] = useState({});
   const [receiptPreview, setReceiptPreview] = useState({ open: false, url: "", title: "", isPdf: false });
+  const [editing, setEditing] = useState(null);
+  const [savingEdit, setSavingEdit] = useState(false);
 
   function isMissingColumnError(error, column) {
     const msg = String(error?.message || "").toLowerCase();
@@ -101,6 +103,70 @@ export default function PaymentHistory({ userId, defaultYear, defaultMonth }) {
     } finally {
       setReceiptLoading((s) => ({ ...s, [key]: false }));
     }
+  }
+
+  function openEdit(row) {
+    const dt = row?.created_at ? new Date(row.created_at) : new Date();
+    setEditing({
+      id: row.id,
+      kind: row.kind,
+      ref_expense_id: row.ref_expense_id,
+      ref_year: row.ref_year,
+      ref_month: row.ref_month,
+      description: row.description || row.note || "",
+      amount: formatMoneyInput(Math.abs(Number(row.amount || 0))),
+      date: dt.toISOString().slice(0, 10),
+    });
+  }
+
+  async function saveEdit() {
+    if (!editing?.id || !userId) return;
+    const parsedAmount = parseMoneyInput(editing.amount);
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) return alert("Informe um valor valido.");
+
+    const dt = editing.date ? new Date(`${editing.date}T12:00:00`) : new Date();
+    const sign = editing.kind === "income" ? 1 : -1;
+    const normalized = roundMoney(Math.abs(parsedAmount) * sign);
+
+    const description = String(editing.description || "").trim() || null;
+    const payload = {
+      amount: normalized,
+      description,
+      note: description,
+      created_at: dt.toISOString(),
+      ref_year: dt.getFullYear(),
+      ref_month: dt.getMonth() + 1,
+    };
+
+    setSavingEdit(true);
+    const { error } = await supabase
+      .from("wallet_transactions")
+      .update(payload)
+      .eq("id", editing.id)
+      .eq("user_id", userId);
+
+    if (error) {
+      setSavingEdit(false);
+      return alert(error.message);
+    }
+
+    if (editing.kind === "expense_payment" && editing.ref_expense_id) {
+      await supabase
+        .from("monthly_expense_status")
+        .update({
+          paid_amount: Math.abs(roundMoney(parsedAmount)),
+          paid_at: dt.toISOString(),
+        })
+        .eq("user_id", userId)
+        .eq("expense_id", editing.ref_expense_id)
+        .eq("year", editing.ref_year)
+        .eq("month", editing.ref_month);
+    }
+
+    setSavingEdit(false);
+    setEditing(null);
+    await fetchPayments();
+    onChanged?.();
   }
 
   const filtered = useMemo(() => {
@@ -196,7 +262,7 @@ export default function PaymentHistory({ userId, defaultYear, defaultMonth }) {
                   padding: "10px 12px",
                   borderTop: "1px solid var(--border)",
                   display: "grid",
-                  gridTemplateColumns: "1fr auto auto",
+                  gridTemplateColumns: "1fr auto auto auto",
                   gap: 10,
                   alignItems: "start",
                 }}
@@ -208,6 +274,9 @@ export default function PaymentHistory({ userId, defaultYear, defaultMonth }) {
                   <div style={{ ...styles.muted, fontSize: 12, marginTop: 2 }}>{new Date(r.created_at).toLocaleString()}</div>
                 </div>
                 <div style={{ fontWeight: 950 }}>{moneyBRL(Math.abs(Number(r.amount || 0)))}</div>
+                <button style={styles.btnGhost} type="button" onClick={() => openEdit(r)}>
+                  Editar
+                </button>
                 <button
                   style={styles.btnGhost}
                   type="button"
@@ -222,6 +291,74 @@ export default function PaymentHistory({ userId, defaultYear, defaultMonth }) {
           </div>
         )}
       </div>
+
+      {editing ? (
+        <div
+          onMouseDown={(e) => e.target === e.currentTarget && !savingEdit && setEditing(null)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,.45)",
+            display: "grid",
+            placeItems: "center",
+            zIndex: 95,
+            padding: 14,
+          }}
+        >
+          <div
+            style={{
+              width: "min(620px, 100%)",
+              background: "var(--card)",
+              border: "1px solid var(--border)",
+              borderRadius: 16,
+              boxShadow: "var(--shadow)",
+              padding: 14,
+            }}
+          >
+            <div style={{ fontWeight: 900, fontSize: 16 }}>Editar registro</div>
+            <div style={{ ...styles.muted, marginTop: 4, fontSize: 13 }}>
+              Ajuste valor, descricao e data do lancamento.
+            </div>
+
+            <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
+              <input
+                style={styles.input}
+                placeholder="Descricao"
+                value={editing.description}
+                onChange={(e) => setEditing((p) => ({ ...p, description: e.target.value }))}
+              />
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <input
+                  style={styles.input}
+                  placeholder="Valor (R$)"
+                  value={editing.amount}
+                  onChange={(e) => setEditing((p) => ({ ...p, amount: e.target.value }))}
+                  onBlur={(e) => {
+                    const parsed = parseMoneyInput(e.target.value);
+                    if (Number.isFinite(parsed)) setEditing((p) => ({ ...p, amount: formatMoneyInput(parsed) }));
+                  }}
+                  inputMode="decimal"
+                />
+                <input
+                  style={styles.input}
+                  type="date"
+                  value={editing.date}
+                  onChange={(e) => setEditing((p) => ({ ...p, date: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 14 }}>
+              <button style={styles.btnGhost} type="button" disabled={savingEdit} onClick={() => setEditing(null)}>
+                Cancelar
+              </button>
+              <button style={styles.btn} type="button" disabled={savingEdit} onClick={saveEdit}>
+                {savingEdit ? "Salvando..." : "Salvar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {receiptPreview.open ? (
         <div
