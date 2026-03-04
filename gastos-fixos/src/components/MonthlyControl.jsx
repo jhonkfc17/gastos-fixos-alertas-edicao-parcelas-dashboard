@@ -11,7 +11,7 @@ function ymKey(d = new Date()) {
   return `${y}-${String(m).padStart(2, "0")}`;
 }
 
-export default function MonthlyControl({ userId, onPaymentRegistered }) {
+export default function MonthlyControl({ userId, items = [], onPaymentRegistered }) {
   const [selectedYm, setSelectedYm] = useState(() => ymKey());
   const [expenses, setExpenses] = useState([]);
   const [statusMap, setStatusMap] = useState({});
@@ -32,24 +32,16 @@ export default function MonthlyControl({ userId, onPaymentRegistered }) {
   useEffect(() => {
     fetchData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, selectedYm]);
+  }, [userId, selectedYm, items]);
 
   async function fetchData() {
     if (!userId) return;
     setLoading(true);
 
-    const { data: exp, error: expErr } = await supabase
-      .from("fixed_expenses")
-      .select("*")
-      .eq("user_id", userId)
-      .eq("active", true)
-      .order("due_day", { ascending: true });
-
-    if (expErr) {
-      setLoading(false);
-      alert(expErr.message);
-      return;
-    }
+    const activeExpenses = (items ?? [])
+      .filter((e) => e?.active)
+      .sort((a, b) => Number(a?.due_day || 0) - Number(b?.due_day || 0));
+    setExpenses(activeExpenses);
 
     const { data: st, error: stErr } = await supabase
       .from("monthly_expense_status")
@@ -59,12 +51,17 @@ export default function MonthlyControl({ userId, onPaymentRegistered }) {
       .eq("month", month);
 
     setLoading(false);
-    if (stErr) return alert(stErr.message);
+    if (stErr) {
+      setStatusMap({});
+      return;
+    }
 
     const map = {};
-    (st ?? []).forEach((r) => (map[r.fixed_expense_id] = r));
+    (st ?? []).forEach((r) => {
+      const expenseId = r.fixed_expense_id ?? r.expense_id;
+      if (expenseId) map[expenseId] = r;
+    });
     setStatusMap(map);
-    setExpenses(exp ?? []);
   }
 
   const rows = useMemo(() => {
@@ -137,18 +134,27 @@ export default function MonthlyControl({ userId, onPaymentRegistered }) {
     const statusFallback = { ...statusRow };
     delete statusFallback.paid_installments;
 
-    const { error: upsertErr } = await supabase
-      .from("monthly_expense_status")
-      .upsert(statusRow, { onConflict: "user_id,fixed_expense_id,year,month" });
-
-    if (upsertErr && isMissingColumnError(upsertErr, "paid_installments")) {
-      const { error: upsertErr2 } = await supabase
+    async function upsertStatusWithBothIdColumns(rowValue) {
+      const primary = await supabase
         .from("monthly_expense_status")
-        .upsert(statusFallback, { onConflict: "user_id,fixed_expense_id,year,month" });
-      if (upsertErr2) throw upsertErr2;
-    } else if (upsertErr) {
-      throw upsertErr;
+        .upsert(rowValue, { onConflict: "user_id,fixed_expense_id,year,month" });
+
+      if (!primary.error) return null;
+      if (!isMissingColumnError(primary.error, "fixed_expense_id")) return primary.error;
+
+      const fallback = { ...rowValue, expense_id: row.e.id };
+      delete fallback.fixed_expense_id;
+      const secondary = await supabase
+        .from("monthly_expense_status")
+        .upsert(fallback, { onConflict: "user_id,expense_id,year,month" });
+      return secondary.error || null;
     }
+
+    let upsertErr = await upsertStatusWithBothIdColumns(statusRow);
+    if (upsertErr && isMissingColumnError(upsertErr, "paid_installments")) {
+      upsertErr = await upsertStatusWithBothIdColumns(statusFallback);
+    }
+    if (upsertErr) throw upsertErr;
 
     // 2) Insert wallet transaction (safe if optional columns don't exist)
     const baseTx = {
