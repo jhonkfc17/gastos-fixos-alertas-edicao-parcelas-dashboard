@@ -406,11 +406,16 @@ export default function MonthlyControl({
             const badge = paid ? "Pago" : "Pendente";
             const isCurrentMonth = localYear === today.getFullYear() && localMonth === today.getMonth() + 1;
             const isOverdue = !paid && isCurrentMonth && Number(exp.due_day || 0) < today.getDate();
-            const rowBg = paid
-              ? "rgba(34,197,94,.18)"
+            const rowAccent = paid
+              ? "rgba(16,185,129,.95)"
               : isOverdue
-                ? "rgba(239,68,68,.18)"
-                : "rgba(245,158,11,.18)";
+                ? "rgba(244,63,94,.95)"
+                : "rgba(245,158,11,.95)";
+            const rowBg = paid
+              ? "linear-gradient(90deg, rgba(16,185,129,.22) 0%, rgba(16,185,129,.10) 55%, rgba(16,185,129,.04) 100%)"
+              : isOverdue
+                ? "linear-gradient(90deg, rgba(244,63,94,.22) 0%, rgba(244,63,94,.10) 55%, rgba(244,63,94,.04) 100%)"
+                : "linear-gradient(90deg, rgba(245,158,11,.22) 0%, rgba(245,158,11,.10) 55%, rgba(245,158,11,.04) 100%)";
             return (
               <div
                 key={exp.id}
@@ -422,7 +427,7 @@ export default function MonthlyControl({
                   padding: 12,
                   borderTop: "1px solid var(--border)",
                   background: rowBg,
-                  boxShadow: "none",
+                  boxShadow: `inset 4px 0 0 ${rowAccent}`,
                 }}
               >
                 <div style={{ minWidth: 0 }}>

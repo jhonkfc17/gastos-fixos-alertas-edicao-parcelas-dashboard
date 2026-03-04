@@ -164,13 +164,20 @@ function Row({ item, paid, selectedYM, onTogglePaid, onToggleActive, onRemove, o
   const rowMonth = Number(selectedYM?.month ?? now.getMonth() + 1);
   const isCurrentMonth = rowYear === now.getFullYear() && rowMonth === now.getMonth() + 1;
   const isOverdue = canMark && !paid && isCurrentMonth && Number(item.due_day || 0) < now.getDate();
+  const rowAccent = !canMark
+    ? "transparent"
+    : paid
+      ? "rgba(16,185,129,.95)"
+      : isOverdue
+        ? "rgba(244,63,94,.95)"
+        : "rgba(245,158,11,.95)";
   const rowBg = !canMark
     ? "transparent"
     : paid
-      ? "rgba(34,197,94,.18)"
+      ? "linear-gradient(90deg, rgba(16,185,129,.22) 0%, rgba(16,185,129,.10) 55%, rgba(16,185,129,.04) 100%)"
       : isOverdue
-        ? "rgba(239,68,68,.18)"
-        : "rgba(245,158,11,.18)";
+        ? "linear-gradient(90deg, rgba(244,63,94,.22) 0%, rgba(244,63,94,.10) 55%, rgba(244,63,94,.04) 100%)"
+        : "linear-gradient(90deg, rgba(245,158,11,.22) 0%, rgba(245,158,11,.10) 55%, rgba(245,158,11,.04) 100%)";
 
   const categoryOptions = [...new Set([...baseCategories, String(item.category || "").trim()].filter(Boolean))];
 
@@ -182,7 +189,7 @@ function Row({ item, paid, selectedYM, onTogglePaid, onToggleActive, onRemove, o
         alignItems: "center",
         borderBottom: "1px solid var(--border)",
         background: rowBg,
-        boxShadow: "none",
+        boxShadow: canMark ? `inset 4px 0 0 ${rowAccent}` : "none",
       }}
     >
       <div className="expenseInfo" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
