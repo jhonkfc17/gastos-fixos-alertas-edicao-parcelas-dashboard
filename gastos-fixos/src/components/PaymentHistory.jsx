@@ -11,6 +11,7 @@ export default function PaymentHistory({ userId, defaultYear, defaultMonth }) {
   const [q, setQ] = useState("");
   const [kindFilter, setKindFilter] = useState("all");
   const [receiptLoading, setReceiptLoading] = useState({});
+  const [receiptPreview, setReceiptPreview] = useState({ open: false, url: "", title: "", isPdf: false });
 
   function isMissingColumnError(error, column) {
     const msg = String(error?.message || "").toLowerCase();
@@ -74,8 +75,14 @@ export default function PaymentHistory({ userId, defaultYear, defaultMonth }) {
     const key = row.id;
     setReceiptLoading((s) => ({ ...s, [key]: true }));
     try {
+      const inferIsPdf = (value) => String(value || "").toLowerCase().includes(".pdf");
       if (row.receipt_url) {
-        window.open(row.receipt_url, "_blank", "noopener,noreferrer");
+        setReceiptPreview({
+          open: true,
+          url: row.receipt_url,
+          title: row.description || row.note || "Comprovante",
+          isPdf: inferIsPdf(row.receipt_url) || inferIsPdf(row.receipt_path),
+        });
         return;
       }
 
@@ -83,7 +90,14 @@ export default function PaymentHistory({ userId, defaultYear, defaultMonth }) {
         .from("receipts")
         .createSignedUrl(row.receipt_path, 60 * 10);
       if (error) return alert(error.message);
-      if (data?.signedUrl) window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+      if (data?.signedUrl) {
+        setReceiptPreview({
+          open: true,
+          url: data.signedUrl,
+          title: row.description || row.note || "Comprovante",
+          isPdf: inferIsPdf(row.receipt_path),
+        });
+      }
     } finally {
       setReceiptLoading((s) => ({ ...s, [key]: false }));
     }
@@ -208,6 +222,76 @@ export default function PaymentHistory({ userId, defaultYear, defaultMonth }) {
           </div>
         )}
       </div>
+
+      {receiptPreview.open ? (
+        <div
+          onMouseDown={(e) => e.target === e.currentTarget && setReceiptPreview({ open: false, url: "", title: "", isPdf: false })}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,.5)",
+            display: "grid",
+            placeItems: "center",
+            zIndex: 90,
+            padding: 14,
+          }}
+        >
+          <div
+            style={{
+              width: "min(980px, 100%)",
+              height: "min(88vh, 820px)",
+              background: "var(--card)",
+              border: "1px solid var(--border)",
+              borderRadius: 16,
+              boxShadow: "var(--shadow)",
+              display: "grid",
+              gridTemplateRows: "auto 1fr",
+              overflow: "hidden",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", padding: 12, borderBottom: "1px solid var(--border)" }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 900, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Preview do comprovante</div>
+                <div style={{ ...styles.muted, fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {receiptPreview.title}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  style={styles.btnGhost}
+                  type="button"
+                  onClick={() => window.open(receiptPreview.url, "_blank", "noopener,noreferrer")}
+                >
+                  Abrir em nova aba
+                </button>
+                <button
+                  style={styles.btnGhost}
+                  type="button"
+                  onClick={() => setReceiptPreview({ open: false, url: "", title: "", isPdf: false })}
+                >
+                  Fechar
+                </button>
+              </div>
+            </div>
+
+            <div style={{ background: "var(--card2)", minHeight: 0 }}>
+              {receiptPreview.isPdf ? (
+                <iframe
+                  title="preview-comprovante"
+                  src={receiptPreview.url}
+                  style={{ width: "100%", height: "100%", border: "none" }}
+                />
+              ) : (
+                <img
+                  src={receiptPreview.url}
+                  alt="Comprovante"
+                  style={{ width: "100%", height: "100%", objectFit: "contain" }}
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
