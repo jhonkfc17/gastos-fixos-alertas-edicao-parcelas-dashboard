@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { formatMoneyInput, parseMoneyInput, styles } from "./ui";
 
-const categories = ["Moradia", "Contas", "Assinaturas", "Transporte", "Combustível", "Saúde", "Caixa de Fusivel", "Outros"];
+const categories = ["Moradia", "Contas", "Assinaturas", "Transporte", "Combustível", "Saúde", "Outros"];
 
 export default function ExpenseForm({ onAdd, loading }) {
   const [form, setForm] = useState({
