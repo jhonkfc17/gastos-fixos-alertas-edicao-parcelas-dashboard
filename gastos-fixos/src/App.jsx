@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { supabase } from "./lib/supabase";
 import Auth from "./components/Auth";
 import TopBar from "./components/TopBar";
@@ -22,6 +22,8 @@ export default function App() {
   const [monthPaidExpenseIds, setMonthPaidExpenseIds] = useState([]);
   const [variableSpentMonth, setVariableSpentMonth] = useState(0);
   const [variableByCategory, setVariableByCategory] = useState([]);
+  const [payDialog, setPayDialog] = useState({ open: false, expenseName: "", amount: "", file: null });
+  const payDialogResolver = useRef(null);
 
   const [ym, setYm] = useState(() => {
     const d = new Date();
@@ -42,6 +44,15 @@ export default function App() {
   }, [session]);
 
   useEffect(() => {
+    return () => {
+      if (payDialogResolver.current) {
+        payDialogResolver.current(null);
+        payDialogResolver.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     if (!session?.user?.id) return;
     fetchCurrentMonthVariable().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -53,6 +64,45 @@ export default function App() {
     setLoading(false);
     if (error) return alert(error.message);
     setItems(data ?? []);
+  }
+
+  function isMissingColumnError(error, column) {
+    const msg = String(error?.message || "").toLowerCase();
+    return msg.includes(`column wallet_transactions.${String(column).toLowerCase()} does not exist`);
+  }
+
+  function openPayDialog({ expenseName, suggestedAmount }) {
+    return new Promise((resolve) => {
+      payDialogResolver.current = resolve;
+      setPayDialog({
+        open: true,
+        expenseName: expenseName || "",
+        amount: String(suggestedAmount || "").replace(".", ","),
+        file: null,
+      });
+    });
+  }
+
+  function closePayDialog(result) {
+    setPayDialog((p) => ({ ...p, open: false }));
+    if (payDialogResolver.current) {
+      payDialogResolver.current(result);
+      payDialogResolver.current = null;
+    }
+  }
+
+  async function uploadReceiptFile(file, userId, refDate = new Date()) {
+    if (!file || !userId) return { receiptPath: null, receiptUrl: null, error: null };
+    const ext = file.name.split(".").pop();
+    const y = refDate.getFullYear();
+    const mo = String(refDate.getMonth() + 1).padStart(2, "0");
+    const fileName = `${userId}/${y}/${mo}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+
+    const { error: uploadError } = await supabase.storage.from("receipts").upload(fileName, file);
+    if (uploadError) return { receiptPath: null, receiptUrl: null, error: uploadError };
+
+    const { data } = supabase.storage.from("receipts").getPublicUrl(fileName);
+    return { receiptPath: fileName, receiptUrl: data?.publicUrl || null, error: null };
   }
 
   function parseVariableCategory(row) {
@@ -199,7 +249,7 @@ export default function App() {
     fetchItems();
   }
 
-  async function syncWalletForExpense(exp, year, month, isPaid, paidAmount) {
+  async function syncWalletForExpense(exp, year, month, isPaid, paidAmount, receipt = {}) {
     try {
       const userId = session?.user?.id;
       const info = expenseMonthInfo(exp, year, month);
@@ -225,7 +275,7 @@ export default function App() {
             : "";
 
         const label = `${exp.name}${installmentSuffix} - ${ymLabel(year, month)}`;
-        const { error } = await supabase.from("wallet_transactions").insert({
+        const txPayload = {
           user_id: userId,
           kind: "expense_payment",
           amount,
@@ -235,7 +285,19 @@ export default function App() {
           ref_year: year,
           ref_month: month,
           created_at: new Date().toISOString(),
-        });
+          ...(receipt?.receiptPath ? { receipt_path: receipt.receiptPath } : {}),
+          ...(receipt?.receiptUrl ? { receipt_url: receipt.receiptUrl } : {}),
+        };
+
+        let { error } = await supabase.from("wallet_transactions").insert(txPayload);
+        if (error && (isMissingColumnError(error, "receipt_path") || isMissingColumnError(error, "receipt_url"))) {
+          const { receipt_path, receipt_url, ...fallbackPayload } = txPayload;
+          const fallback = await supabase.from("wallet_transactions").insert(fallbackPayload);
+          error = fallback.error || null;
+          if (!error && (receipt_path || receipt_url)) {
+            alert("Pagamento registrado sem anexo (coluna de comprovante ausente no banco).");
+          }
+        }
 
         if (error) {
           console.error?.("[wallet] insert error", error);
@@ -286,6 +348,7 @@ export default function App() {
     }
 
     let resolvedPaidAmount = null;
+    let receipt = { receiptPath: null, receiptUrl: null };
     let paidAt = null;
 
     if (resolvedNextPaid) {
@@ -293,14 +356,22 @@ export default function App() {
         resolvedPaidAmount = roundMoney(paidAmount);
       } else if (askAmount) {
         const suggested = Number(exp.amount || 0);
-        const raw = prompt("Valor pago (pode ser parcial):", String(suggested).replace(".", ","));
-        if (raw === null) return false;
-        const parsed = parseMoneyInput(raw);
+        const result = await openPayDialog({ expenseName: exp.name, suggestedAmount: suggested });
+        if (!result) return false;
+        const parsed = parseMoneyInput(result.amount);
         if (!Number.isFinite(parsed) || parsed <= 0) {
           alert("Informe um valor pago valido.");
           return false;
         }
         resolvedPaidAmount = roundMoney(parsed);
+        if (result.file) {
+          const uploaded = await uploadReceiptFile(result.file, userId, new Date());
+          if (uploaded.error) {
+            alert(`Falha ao enviar comprovante: ${uploaded.error.message}`);
+            return false;
+          }
+          receipt = { receiptPath: uploaded.receiptPath, receiptUrl: uploaded.receiptUrl };
+        }
       } else {
         resolvedPaidAmount = roundMoney(exp.amount || 0);
       }
@@ -326,7 +397,7 @@ export default function App() {
       return false;
     }
 
-    await syncWalletForExpense(exp, year, month, resolvedNextPaid, resolvedPaidAmount);
+    await syncWalletForExpense(exp, year, month, resolvedNextPaid, resolvedPaidAmount, receipt);
     return true;
   }
 
@@ -475,6 +546,67 @@ export default function App() {
           <PaymentHistory userId={session.user.id} defaultYear={ym.year} defaultMonth={ym.month} />
         </div>
       </div>
+
+      {payDialog.open ? (
+        <div
+          onMouseDown={(e) => e.target === e.currentTarget && closePayDialog(null)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,.45)",
+            display: "grid",
+            placeItems: "center",
+            zIndex: 80,
+            padding: 14,
+          }}
+        >
+          <div
+            style={{
+              width: "min(560px, 100%)",
+              background: "var(--card)",
+              border: "1px solid var(--border)",
+              borderRadius: 16,
+              boxShadow: "var(--shadow)",
+              padding: 14,
+            }}
+          >
+            <div style={{ fontWeight: 900, fontSize: 16 }}>Registrar pagamento</div>
+            <div style={{ ...styles.muted, marginTop: 4, fontSize: 13 }}>
+              {payDialog.expenseName || "Conta"} - valor pago e comprovante opcional
+            </div>
+            <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+              <input
+                style={styles.input}
+                placeholder="Valor pago (ex.: 934,15)"
+                value={payDialog.amount}
+                onChange={(e) => setPayDialog((p) => ({ ...p, amount: e.target.value }))}
+                inputMode="decimal"
+              />
+              <input
+                style={styles.input}
+                type="file"
+                accept="image/*,application/pdf"
+                onChange={(e) => setPayDialog((p) => ({ ...p, file: e.target.files?.[0] || null }))}
+              />
+              {payDialog.file ? (
+                <div style={{ ...styles.muted, fontSize: 12 }}>Arquivo: {payDialog.file.name}</div>
+              ) : null}
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 14 }}>
+              <button style={styles.btnGhost} type="button" onClick={() => closePayDialog(null)}>
+                Cancelar
+              </button>
+              <button
+                style={styles.btn}
+                type="button"
+                onClick={() => closePayDialog({ amount: payDialog.amount, file: payDialog.file })}
+              >
+                Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

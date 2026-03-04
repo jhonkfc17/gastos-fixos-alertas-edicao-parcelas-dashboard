@@ -10,6 +10,7 @@ export default function PaymentHistory({ userId, defaultYear, defaultMonth }) {
   const [rows, setRows] = useState([]);
   const [q, setQ] = useState("");
   const [kindFilter, setKindFilter] = useState("all");
+  const [receiptLoading, setReceiptLoading] = useState({});
 
   useEffect(() => {
     if (defaultYear) setYear(defaultYear);
@@ -27,9 +28,10 @@ export default function PaymentHistory({ userId, defaultYear, defaultMonth }) {
     const start = new Date(year, month - 1, 1).toISOString();
     const end = new Date(year, month, 0, 23, 59, 59, 999).toISOString();
 
+    const baseSelect = "id, kind, amount, description, note, created_at, ref_year, ref_month, ref_expense_id";
     let query = supabase
       .from("wallet_transactions")
-      .select("id, kind, amount, description, note, created_at, ref_year, ref_month, ref_expense_id")
+      .select(`${baseSelect}, receipt_path, receipt_url`)
       .eq("user_id", userId)
       .gte("created_at", start)
       .lte("created_at", end)
@@ -40,11 +42,43 @@ export default function PaymentHistory({ userId, defaultYear, defaultMonth }) {
     if (kindFilter === "fixed") query = query.eq("kind", "expense_payment");
     if (kindFilter === "variable") query = query.eq("kind", "manual_expense");
 
-    const { data, error } = await query;
+    let { data, error } = await query;
+    if (String(error?.message || "").toLowerCase().includes("column wallet_transactions.receipt_path does not exist")) {
+      const fallback = await supabase
+        .from("wallet_transactions")
+        .select(baseSelect)
+        .eq("user_id", userId)
+        .gte("created_at", start)
+        .lte("created_at", end)
+        .order("created_at", { ascending: false })
+        .limit(500);
+      data = fallback.data;
+      error = fallback.error;
+    }
 
     setLoading(false);
     if (error) return alert(error.message);
     setRows(data ?? []);
+  }
+
+  async function openReceipt(row) {
+    if (!row?.receipt_path && !row?.receipt_url) return;
+    const key = row.id;
+    setReceiptLoading((s) => ({ ...s, [key]: true }));
+    try {
+      if (row.receipt_url) {
+        window.open(row.receipt_url, "_blank", "noopener,noreferrer");
+        return;
+      }
+
+      const { data, error } = await supabase.storage
+        .from("receipts")
+        .createSignedUrl(row.receipt_path, 60 * 10);
+      if (error) return alert(error.message);
+      if (data?.signedUrl) window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+    } finally {
+      setReceiptLoading((s) => ({ ...s, [key]: false }));
+    }
   }
 
   const filtered = useMemo(() => {
@@ -140,7 +174,7 @@ export default function PaymentHistory({ userId, defaultYear, defaultMonth }) {
                   padding: "10px 12px",
                   borderTop: "1px solid var(--border)",
                   display: "grid",
-                  gridTemplateColumns: "1fr auto",
+                  gridTemplateColumns: "1fr auto auto",
                   gap: 10,
                   alignItems: "start",
                 }}
@@ -152,6 +186,15 @@ export default function PaymentHistory({ userId, defaultYear, defaultMonth }) {
                   <div style={{ ...styles.muted, fontSize: 12, marginTop: 2 }}>{new Date(r.created_at).toLocaleString()}</div>
                 </div>
                 <div style={{ fontWeight: 950 }}>{moneyBRL(Math.abs(Number(r.amount || 0)))}</div>
+                <button
+                  style={styles.btnGhost}
+                  type="button"
+                  disabled={receiptLoading[r.id] || (!r.receipt_path && !r.receipt_url)}
+                  onClick={() => openReceipt(r)}
+                  title={r.receipt_path || r.receipt_url ? "Abrir comprovante" : "Sem comprovante"}
+                >
+                  {receiptLoading[r.id] ? "Abrindo..." : "Comprovante"}
+                </button>
               </div>
             ))}
           </div>
