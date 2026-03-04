@@ -40,8 +40,16 @@ export default function ExpenseList({
     if (filter.sort === "amount_asc") out = [...out].sort((a, b) => Number(a.amount || 0) - Number(b.amount || 0));
     if (filter.sort === "due") out = [...out].sort((a, b) => Number(a.due_day || 0) - Number(b.due_day || 0));
     if (filter.sort === "name") out = [...out].sort((a, b) => String(a.name).localeCompare(String(b.name)));
+
+    // Contas pagas devem ir para o final da lista.
+    out = [...out].sort((a, b) => {
+      const aPaid = paidSet.has(a.id) ? 1 : 0;
+      const bPaid = paidSet.has(b.id) ? 1 : 0;
+      return aPaid - bPaid;
+    });
+
     return out;
-  }, [items, filter]);
+  }, [items, filter, paidSet]);
 
   return (
     <div className="mobileCardTight" style={styles.card}>
