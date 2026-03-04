@@ -3,21 +3,15 @@ import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
 import './index.css'
 
-// PWA service worker registration (vite-plugin-pwa)
-import { registerSW } from 'virtual:pwa-register'
-
-const updateSW = registerSW({
-  immediate: true,
-  onNeedRefresh() {
-    // App update available
-    const ok = window.confirm('Nova versão disponível. Atualizar agora?')
-    if (ok) updateSW(true)
-  },
-  onOfflineReady() {
-    // Cached for offline usage
-    console.log('App pronto para uso offline.')
-  },
-})
+// Remove SW legado para evitar cache de bundle antigo (404 apos deploy).
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations().then((regs) => {
+    regs.forEach((reg) => reg.unregister())
+  })
+}
+if ('caches' in window) {
+  caches.keys().then((keys) => keys.forEach((k) => caches.delete(k)))
+}
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
