@@ -8,7 +8,7 @@ import ExpenseList from "./components/ExpenseList";
 import MonthlyControl from "./components/MonthlyControl";
 import WalletPanel from "./components/WalletPanel";
 import PaymentHistory from "./components/PaymentHistory";
-import { expenseMonthInfo, styles, ymLabel } from "./components/ui";
+import { expenseMonthInfo, parseMoneyInput, roundMoney, styles, ymLabel } from "./components/ui";
 import { downloadTextFile, toCSV } from "./lib/csv";
 
 export default function App() {
@@ -61,36 +61,45 @@ export default function App() {
   }
 
   async function addExpense(form) {
-    const parseMoney = (v) => {
-      if (v === null || v === undefined) return null;
-      const s = String(v).trim().replace(/\./g, "").replace(",", ".");
-      const n = Number(s);
-      return Number.isFinite(n) ? n : null;
-    };
-
     const userId = session?.user?.id;
+    const baseAmount = parseMoneyInput(form.amount);
+    const totalAmount = parseMoneyInput(form.totalAmount);
+    const installmentCount = Number(form.installments);
+
     const payload = {
       user_id: userId,
-      name: form.name?.trim(),
+      name: String(form.name || "").trim(),
       category: form.category,
       amount: form.isInstallment
-        ? parseMoney(form.totalAmount) / Number(form.installments)
-        : parseMoney(form.amount),
+        ? roundMoney((totalAmount ?? 0) / (installmentCount || 1))
+        : roundMoney(baseAmount ?? 0),
       due_day: Number(form.dueDay),
       payment_method: form.payment,
       active: !!form.active,
       is_installment: !!form.isInstallment,
-      installment_total_amount: form.isInstallment ? parseMoney(form.totalAmount) : null,
-      installment_total: form.isInstallment ? Number(form.installments) : null,
+      installment_total_amount: form.isInstallment ? roundMoney(totalAmount ?? 0) : null,
+      installment_total: form.isInstallment ? installmentCount : null,
       installment_start_month: form.isInstallment ? Number(form.startMonth) : null,
       installment_start_year: form.isInstallment ? Number(form.startYear) : null,
     };
 
     if (!payload.user_id) return alert("Sessao invalida: usuario nao encontrado.");
     if (!payload.name) return alert("Informe o nome do gasto.");
-    if (!Number.isFinite(payload.amount)) return alert("Valor invalido.");
+    if (!Number.isFinite(payload.amount) || payload.amount <= 0) return alert("Valor invalido.");
     if (!Number.isFinite(payload.due_day) || payload.due_day < 1 || payload.due_day > 31) {
       return alert("Dia invalido (1-31).");
+    }
+
+    if (payload.is_installment) {
+      if (!Number.isFinite(payload.installment_total) || payload.installment_total < 2) {
+        return alert("Qtd. de parcelas invalida (minimo 2).");
+      }
+      if (!Number.isFinite(payload.installment_start_month) || payload.installment_start_month < 1 || payload.installment_start_month > 12) {
+        return alert("Mes inicial invalido (1-12).");
+      }
+      if (!Number.isFinite(payload.installment_start_year) || payload.installment_start_year < 2000 || payload.installment_start_year > 2100) {
+        return alert("Ano inicial invalido.");
+      }
     }
 
     setSaving(true);
@@ -98,11 +107,32 @@ export default function App() {
     setSaving(false);
 
     if (error) return alert(error.message);
-    fetchItems();
+    await fetchItems();
+    return true;
   }
 
   async function updateExpense(id, fields) {
-    const { error } = await supabase.from("fixed_expenses").update(fields).eq("id", id);
+    const patch = { ...fields };
+
+    if (Object.prototype.hasOwnProperty.call(patch, "amount")) {
+      const n = parseMoneyInput(patch.amount);
+      if (!Number.isFinite(n) || n <= 0) {
+        alert("Valor invalido.");
+        return;
+      }
+      patch.amount = roundMoney(n);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(patch, "due_day")) {
+      const d = Number(patch.due_day);
+      if (!Number.isFinite(d) || d < 1 || d > 31) {
+        alert("Dia invalido (1-31).");
+        return;
+      }
+      patch.due_day = d;
+    }
+
+    const { error } = await supabase.from("fixed_expenses").update(patch).eq("id", id);
     if (error) return alert(error.message);
     fetchItems();
   }
@@ -126,7 +156,7 @@ export default function App() {
       const info = expenseMonthInfo(exp, year, month);
       if (!userId || !info.applicable) return;
 
-      const value = Math.round(Number(paidAmount ?? exp.amount ?? 0) * 100) / 100;
+      const value = roundMoney(paidAmount ?? exp.amount ?? 0);
       const amount = -Math.abs(value);
 
       const baseWhere = (q) =>
@@ -157,45 +187,74 @@ export default function App() {
           ref_month: month,
           created_at: new Date().toISOString(),
         });
-        if (error) console.error?.("[wallet] insert error", error);
+
+        if (error) {
+          console.error?.("[wallet] insert error", error);
+          alert(`Pagamento marcado, mas falhou na carteira: ${error.message}`);
+        }
       } else {
         const { error } = await baseWhere(supabase.from("wallet_transactions").delete());
-        if (error) console.error?.("[wallet] delete error", error);
+        if (error) {
+          console.error?.("[wallet] delete error", error);
+          alert(`Status desmarcado, mas falhou ao limpar carteira: ${error.message}`);
+        }
       }
     } catch (e) {
       console.error?.("[wallet] sync error", e);
     }
   }
 
-  async function togglePaidForMonth(expenseId, { year = ym.year, month = ym.month } = {}) {
+  async function setPaidState(expenseId, options = {}) {
+    const { year = ym.year, month = ym.month, nextPaid, paidAmount, askAmount = true } = options;
+
     const userId = session?.user?.id;
     const exp = (items ?? []).find((i) => i.id === expenseId);
-    if (!userId || !exp) return;
+    if (!userId || !exp) return false;
 
-    const { data: existingRows, error: existingError } = await supabase
-      .from("monthly_expense_status")
-      .select("paid")
-      .eq("user_id", userId)
-      .eq("expense_id", expenseId)
-      .eq("year", year)
-      .eq("month", month)
-      .limit(1);
+    const info = expenseMonthInfo(exp, year, month);
+    if (!info.applicable && (nextPaid ?? true)) {
+      alert("Este gasto nao se aplica ao mes selecionado.");
+      return false;
+    }
 
-    if (existingError) return alert(existingError.message);
+    let resolvedNextPaid = nextPaid;
+    if (typeof resolvedNextPaid !== "boolean") {
+      const { data: existingRows, error: existingError } = await supabase
+        .from("monthly_expense_status")
+        .select("paid")
+        .eq("user_id", userId)
+        .eq("expense_id", expenseId)
+        .eq("year", year)
+        .eq("month", month)
+        .limit(1);
 
-    const existing = existingRows?.[0] ?? null;
-    const nextPaid = existing ? !existing.paid : true;
+      if (existingError) {
+        alert(existingError.message);
+        return false;
+      }
 
-    let paidAmount = null;
+      resolvedNextPaid = !(existingRows?.[0]?.paid ?? false);
+    }
+
+    let resolvedPaidAmount = null;
     let paidAt = null;
 
-    if (nextPaid) {
-      const suggested = Number(exp.amount || 0);
-      const raw = prompt("Valor pago (pode ser parcial):", String(suggested).replace(".", ","));
-      if (raw === null) return;
-      const v = Number(String(raw).replace(",", "."));
-      if (!Number.isFinite(v) || v <= 0) return alert("Informe um valor pago valido.");
-      paidAmount = Math.round(v * 100) / 100;
+    if (resolvedNextPaid) {
+      if (typeof paidAmount === "number" && Number.isFinite(paidAmount) && paidAmount > 0) {
+        resolvedPaidAmount = roundMoney(paidAmount);
+      } else if (askAmount) {
+        const suggested = Number(exp.amount || 0);
+        const raw = prompt("Valor pago (pode ser parcial):", String(suggested).replace(".", ","));
+        if (raw === null) return false;
+        const parsed = parseMoneyInput(raw);
+        if (!Number.isFinite(parsed) || parsed <= 0) {
+          alert("Informe um valor pago valido.");
+          return false;
+        }
+        resolvedPaidAmount = roundMoney(parsed);
+      } else {
+        resolvedPaidAmount = roundMoney(exp.amount || 0);
+      }
       paidAt = new Date().toISOString();
     }
 
@@ -204,18 +263,50 @@ export default function App() {
       expense_id: expenseId,
       year,
       month,
-      paid: nextPaid,
-      paid_amount: paidAmount,
-      paid_at: paidAt,
+      paid: resolvedNextPaid,
+      paid_amount: resolvedNextPaid ? resolvedPaidAmount : null,
+      paid_at: resolvedNextPaid ? paidAt : null,
     };
 
     const { error } = await supabase
       .from("monthly_expense_status")
       .upsert(payload, { onConflict: "user_id,expense_id,year,month" });
 
-    if (error) return alert(error.message);
+    if (error) {
+      alert(error.message);
+      return false;
+    }
 
-    await syncWalletForExpense(exp, year, month, nextPaid, paidAmount);
+    await syncWalletForExpense(exp, year, month, resolvedNextPaid, resolvedPaidAmount);
+    return true;
+  }
+
+  async function togglePaidForMonth(expenseId, options = {}) {
+    const ok = await setPaidState(expenseId, { ...options, askAmount: true });
+    if (!ok) return false;
+
+    setWalletRefresh((v) => v + 1);
+    setStatusRefreshKey((v) => v + 1);
+    return true;
+  }
+
+  async function setManyPaidForMonth(expenseIds = [], { year = ym.year, month = ym.month, nextPaid } = {}) {
+    const ids = Array.isArray(expenseIds) ? expenseIds : [];
+    if (ids.length === 0) return;
+
+    for (const expenseId of ids) {
+      const exp = (items ?? []).find((i) => i.id === expenseId);
+      const defaultAmount = Number(exp?.amount || 0);
+      // eslint-disable-next-line no-await-in-loop
+      await setPaidState(expenseId, {
+        year,
+        month,
+        nextPaid,
+        askAmount: false,
+        paidAmount: defaultAmount > 0 ? defaultAmount : null,
+      });
+    }
+
     setWalletRefresh((v) => v + 1);
     setStatusRefreshKey((v) => v + 1);
   }
@@ -301,7 +392,7 @@ export default function App() {
             paidExpenseIds={monthPaidExpenseIds}
             selectedYM={ym}
             onTogglePaid={(id) => togglePaidForMonth(id, ym)}
-            onToggleActive={(id, active) => toggleActive(id, !active)}
+            onToggleActive={(id, nextActive) => toggleActive(id, nextActive)}
             onRemove={(id) => removeExpense(id)}
             onUpdateAmount={(id, amount) => updateExpense(id, { amount })}
             onUpdateFields={(id, fields) => updateExpense(id, fields)}
@@ -318,6 +409,7 @@ export default function App() {
             onChangeYM={setYm}
             onStatusChange={handleStatusChange}
             onTogglePaid={togglePaidForMonth}
+            onSetAllPaid={setManyPaidForMonth}
             onWalletChanged={() => setWalletRefresh((v) => v + 1)}
           />
           <div style={{ ...styles.muted, fontSize: 13, marginTop: 10, lineHeight: 1.35 }}>

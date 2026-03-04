@@ -24,6 +24,7 @@ export default function MonthlyControl({
   onChangeYM,
   onStatusChange,
   onTogglePaid,
+  onSetAllPaid,
   onWalletChanged,
 }) {
   const today = new Date();
@@ -50,6 +51,7 @@ export default function MonthlyControl({
     const { data, error } = await supabase
       .from("monthly_expense_status")
       .select("id, expense_id, paid, paid_amount")
+      .eq("user_id", userId)
       .eq("year", localYear)
       .eq("month", localMonth);
 
@@ -77,6 +79,7 @@ export default function MonthlyControl({
     const { data, error } = await supabase
       .from("monthly_expense_status")
       .select("expense_id, year, month, paid, paid_amount")
+      .eq("user_id", userId)
       .in("year", years)
       .in("month", months);
 
@@ -163,21 +166,28 @@ export default function MonthlyControl({
 
     const applicable = active.filter((i) => expenseMonthInfo(i, localYear, localMonth).applicable);
 
-    const payload = applicable.map((i) => ({
-      user_id: userId,
-      expense_id: i.id,
-      year: localYear,
-      month: localMonth,
-      paid: Boolean(nextPaid),
-      paid_amount: nextPaid ? Math.round(Number(i.amount || 0) * 100) / 100 : null,
-      paid_at: nextPaid ? new Date().toISOString() : null,
-    }));
+    if (onSetAllPaid) {
+      await onSetAllPaid(
+        applicable.map((i) => i.id),
+        { year: localYear, month: localMonth, nextPaid: Boolean(nextPaid) }
+      );
+    } else {
+      const payload = applicable.map((i) => ({
+        user_id: userId,
+        expense_id: i.id,
+        year: localYear,
+        month: localMonth,
+        paid: Boolean(nextPaid),
+        paid_amount: nextPaid ? Math.round(Number(i.amount || 0) * 100) / 100 : null,
+        paid_at: nextPaid ? new Date().toISOString() : null,
+      }));
 
-    const { error } = await supabase
-      .from("monthly_expense_status")
-      .upsert(payload, { onConflict: "user_id,expense_id,year,month" });
+      const { error } = await supabase
+        .from("monthly_expense_status")
+        .upsert(payload, { onConflict: "user_id,expense_id,year,month" });
 
-    if (error) return alert(error.message);
+      if (error) return alert(error.message);
+    }
 
     onWalletChanged?.();
     fetchStatus();

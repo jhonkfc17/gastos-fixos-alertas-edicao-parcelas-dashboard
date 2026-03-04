@@ -27,18 +27,19 @@ export default function ExpenseForm({ onAdd, loading }) {
     return per;
   })();
 
-  function submit(e) {
+  async function submit(e) {
     e.preventDefault();
-    onAdd?.(form, () =>
-      setForm((p) => ({
-        ...p,
-        name: "",
-        amount: "",
-        isInstallment: false,
-        totalAmount: "",
-        installments: "",
-      }))
-    );
+    const ok = await onAdd?.(form);
+    if (!ok) return;
+
+    setForm((p) => ({
+      ...p,
+      name: "",
+      amount: "",
+      isInstallment: false,
+      totalAmount: "",
+      installments: "",
+    }));
   }
 
   return (

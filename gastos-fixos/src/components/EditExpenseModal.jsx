@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { moneyBRL, styles } from "./ui";
+import { moneyBRL, parseMoneyInput, styles } from "./ui";
 
 function round2(n) {
   return Math.round(Number(n) * 100) / 100;
@@ -54,7 +54,7 @@ export default function EditExpenseModal({ open, item, onClose, onSave }) {
     };
 
     if (!payload.is_installment) {
-      const amount = Number(String(form.amount).replace(",", "."));
+      const amount = parseMoneyInput(form.amount);
       if (!Number.isFinite(amount) || amount < 0) return { error: "Valor inválido." };
       payload.amount = round2(amount);
 
@@ -66,7 +66,7 @@ export default function EditExpenseModal({ open, item, onClose, onSave }) {
       return { payload };
     }
 
-    const totalAmount = Number(String(form.installment_total_amount).replace(",", "."));
+    const totalAmount = parseMoneyInput(form.installment_total_amount);
     const n = Number(form.installment_total);
     const sm = Number(form.installment_start_month);
     const sy = Number(form.installment_start_year);
@@ -205,7 +205,7 @@ export default function EditExpenseModal({ open, item, onClose, onSave }) {
                 </div>
                 <span style={styles.badge}>
                   Mensal aprox.: {(() => {
-                    const ta = Number(String(form.installment_total_amount).replace(",", "."));
+                    const ta = parseMoneyInput(form.installment_total_amount);
                     const n = Number(form.installment_total);
                     if (!Number.isFinite(ta) || !Number.isFinite(n) || n <= 0) return "—";
                     return moneyBRL(round2(ta / n));
@@ -268,3 +268,4 @@ export default function EditExpenseModal({ open, item, onClose, onSave }) {
     </div>
   );
 }
+

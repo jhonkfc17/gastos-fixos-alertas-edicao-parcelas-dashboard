@@ -1,8 +1,8 @@
 import React, { useMemo, useState } from "react";
-import { installmentEndLabel, isInstallmentCompleted, moneyBRL, styles, ymLabel } from "./ui";
+import { expenseMonthInfo, installmentEndLabel, isInstallmentCompleted, moneyBRL, styles, ymLabel } from "./ui";
 import EditExpenseModal from "./EditExpenseModal";
 
-const categories = ["Todas", "Moradia", "Contas", "Assinaturas", "Transporte", "Combustivel", "Saude", "Outros"];
+const baseCategories = ["Moradia", "Contas", "Assinaturas", "Transporte", "Combustivel", "Saude", "Outros"];
 
 export default function ExpenseList({
   items,
@@ -18,6 +18,10 @@ export default function ExpenseList({
   const [editing, setEditing] = useState(null);
 
   const paidSet = useMemo(() => new Set(paidExpenseIds ?? []), [paidExpenseIds]);
+  const categories = useMemo(() => {
+    const fromItems = [...new Set((items ?? []).map((i) => String(i?.category || "").trim()).filter(Boolean))];
+    return ["Todas", ...new Set([...baseCategories, ...fromItems])];
+  }, [items]);
 
   const filtered = useMemo(() => {
     const list = items ?? [];
@@ -102,6 +106,7 @@ export default function ExpenseList({
               key={x.id}
               item={x}
               paid={paidSet.has(x.id)}
+              selectedYM={selectedYM}
               onTogglePaid={onTogglePaid}
               onToggleActive={onToggleActive}
               onRemove={onRemove}
@@ -141,10 +146,14 @@ function HeaderRow() {
   );
 }
 
-function Row({ item, paid, onTogglePaid, onToggleActive, onRemove, onUpdateAmount, onUpdateFields, onEdit }) {
+function Row({ item, paid, selectedYM, onTogglePaid, onToggleActive, onRemove, onUpdateAmount, onUpdateFields, onEdit }) {
   const now = new Date();
   const completed = item.is_installment ? isInstallmentCompleted(item, now.getFullYear(), now.getMonth() + 1) : false;
   const endLabel = item.is_installment ? installmentEndLabel(item) : null;
+  const info = expenseMonthInfo(item, selectedYM?.year ?? now.getFullYear(), selectedYM?.month ?? now.getMonth() + 1);
+  const canMark = Boolean(item.active) && info.applicable;
+
+  const categoryOptions = [...new Set([...baseCategories, String(item.category || "").trim()].filter(Boolean))];
 
   return (
     <div
@@ -182,7 +191,7 @@ function Row({ item, paid, onTogglePaid, onToggleActive, onRemove, onUpdateAmoun
             value={item.category || "Outros"}
             onChange={(e) => onUpdateFields?.(item.id, { category: e.target.value })}
           >
-            {["Moradia", "Contas", "Assinaturas", "Transporte", "Combustivel", "Saude", "Outros"].map((c) => (
+            {categoryOptions.map((c) => (
               <option key={c} value={c}>{c}</option>
             ))}
           </select>
@@ -209,13 +218,28 @@ function Row({ item, paid, onTogglePaid, onToggleActive, onRemove, onUpdateAmoun
       </div>
 
       <div className="expenseActions" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <span style={{ ...styles.badge, background: paid ? "rgba(34,197,94,.16)" : "rgba(245,158,11,.14)" }}>
-          {paid ? "Pago" : "Pendente"}
+        <span
+          style={{
+            ...styles.badge,
+            background: !canMark
+              ? "rgba(148,163,184,.14)"
+              : paid
+                ? "rgba(34,197,94,.16)"
+                : "rgba(245,158,11,.14)",
+          }}
+        >
+          {!canMark ? "Nao se aplica" : paid ? "Pago" : "Pendente"}
         </span>
-        <button style={paid ? styles.btnGhost : styles.btn} type="button" onClick={() => onTogglePaid?.(item.id)}>
+        <button
+          style={paid ? styles.btnGhost : styles.btn}
+          type="button"
+          disabled={!canMark}
+          title={!canMark ? "Ative o gasto e selecione um mes aplicavel para marcar pagamento." : ""}
+          onClick={() => canMark && onTogglePaid?.(item.id)}
+        >
           {paid ? "Desfazer" : "Marcar"}
         </button>
-        <button style={styles.btn} type="button" onClick={() => onToggleActive?.(item.id, item.active)}>
+        <button style={styles.btn} type="button" onClick={() => onToggleActive?.(item.id, !item.active)}>
           {item.active ? "Desativar" : "Ativar"}
         </button>
         <button style={styles.btnGhost} type="button" onClick={() => onEdit?.()}>

@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
-import { expenseMonthInfo, moneyBRL, styles } from "./ui";
+import { expenseMonthInfo, moneyBRL, parseMoneyInput, roundMoney, styles } from "./ui";
 
-// Carteira GLOBAL (saldo total). Mantém ref_year/ref_month apenas como referência.
+// Carteira GLOBAL (saldo total). Mantem ref_year/ref_month apenas como referencia.
 export default function WalletPanel({ userId, items = [], paidExpenseIds = [], refreshKey, onChanged }) {
   const [loading, setLoading] = useState(false);
   const [tx, setTx] = useState([]);
@@ -10,8 +10,6 @@ export default function WalletPanel({ userId, items = [], paidExpenseIds = [], r
   const [desc, setDesc] = useState("");
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [receiptFile, setReceiptFile] = useState(null);
-  const [receiptPreview, setReceiptPreview] = useState({});
-  const [receiptLoading, setReceiptLoading] = useState({});
 
   useEffect(() => {
     if (!userId) return;
@@ -34,12 +32,10 @@ export default function WalletPanel({ userId, items = [], paidExpenseIds = [], r
       .filter((i) => i.active)
       .filter((i) => expenseMonthInfo(i, year, month).applicable);
 
-    const totalMonth = activeThisMonth.reduce((acc, i) => acc + Number(i.amount || 0), 0);
     const pending = activeThisMonth
       .filter((i) => !paidSet.has(i.id))
       .reduce((acc, i) => acc + Number(i.amount || 0), 0);
 
-    // Total restante parcelado (aproximação: parcelas restantes * valor mensal)
     let remainingInstallmentTotal = 0;
     let remainingInstallmentCount = 0;
 
@@ -55,8 +51,8 @@ export default function WalletPanel({ userId, items = [], paidExpenseIds = [], r
       if (!Number.isFinite(total) || total <= 0 || !Number.isFinite(sy) || !Number.isFinite(sm)) continue;
 
       const startIdx = ymIndex(sy, sm);
-      const diff = curIdx - startIdx; // 0 = mês 1
-      const paidCount = Math.max(0, Math.min(total, diff)); // meses anteriores ao atual
+      const diff = curIdx - startIdx;
+      const paidCount = Math.max(0, Math.min(total, diff));
       const remaining = Math.max(0, total - paidCount);
       if (remaining > 0) {
         remainingInstallmentCount += remaining;
@@ -68,9 +64,6 @@ export default function WalletPanel({ userId, items = [], paidExpenseIds = [], r
     const commitmentPct = balance > 0 ? (pending / balance) * 100 : pending > 0 ? 100 : 0;
 
     return {
-      year,
-      month,
-      totalMonth,
       pending,
       freeAfterPending,
       commitmentPct,
@@ -84,6 +77,7 @@ export default function WalletPanel({ userId, items = [], paidExpenseIds = [], r
     const { data, error } = await supabase
       .from("wallet_transactions")
       .select("id, kind, amount, note, description, created_at, ref_expense_id, ref_year, ref_month, receipt_url, receipt_path")
+      .eq("user_id", userId)
       .order("created_at", { ascending: false })
       .limit(30);
 
@@ -94,39 +88,31 @@ export default function WalletPanel({ userId, items = [], paidExpenseIds = [], r
 
   async function addEntry(e) {
     e?.preventDefault?.();
+    if (!userId) return;
 
-    const v = Number(String(amount).replace(",", "."));
-    if (!Number.isFinite(v) || v === 0) return alert("Informe um valor válido. Use negativo para saída.");
+    const v = parseMoneyInput(amount);
+    if (!Number.isFinite(v) || v === 0) return alert("Informe um valor valido. Use negativo para saida.");
 
-    // salva com created_at na data escolhida
     const dt = date ? new Date(`${date}T12:00:00`) : new Date();
-
     let receiptPath = null;
 
     if (receiptFile) {
       const ext = receiptFile.name.split(".").pop();
-      const ym = (date || new Date().toISOString().slice(0, 10)).slice(0, 7); // YYYY-MM
+      const ym = (date || new Date().toISOString().slice(0, 10)).slice(0, 7);
       const [y, mo] = ym.split("-");
       const fileName = `${userId}/${y}/${mo}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
 
-      const { error: uploadError } = await supabase.storage
-        .from("receipts")
-        .upload(fileName, receiptFile);
-
-      if (uploadError) {
-        setLoading(false);
-        return alert(uploadError.message);
-      }
-
+      const { error: uploadError } = await supabase.storage.from("receipts").upload(fileName, receiptFile);
+      if (uploadError) return alert(uploadError.message);
       receiptPath = fileName;
     }
 
     const payload = {
       user_id: userId,
       kind: v > 0 ? "income" : "manual_expense",
-      amount: Math.round(v * 100) / 100,
+      amount: roundMoney(v),
       description: desc?.trim() || null,
-      note: desc?.trim() || null, // compatibilidade com versões antigas
+      note: desc?.trim() || null,
       created_at: dt.toISOString(),
       receipt_path: receiptPath,
     };
@@ -143,49 +129,10 @@ export default function WalletPanel({ userId, items = [], paidExpenseIds = [], r
     onChanged?.();
   }
 
-  
-  async function openReceipt(row) {
-    try {
-      const key = row.id;
-      if (!row.receipt_path && !row.receipt_url) return;
-      setReceiptLoading((s) => ({ ...s, [key]: true }));
-
-      // Compat: if receipt_url (public) exists, use it
-      if (row.receipt_url) {
-        setReceiptPreview((s) => ({ ...s, [key]: row.receipt_url }));
-        setReceiptLoading((s) => ({ ...s, [key]: false }));
-        return;
-      }
-
-      const { data, error } = await supabase.storage
-        .from("receipts")
-        .createSignedUrl(row.receipt_path, 60 * 10); // 10 min
-
-      if (error) {
-        setReceiptLoading((s) => ({ ...s, [key]: false }));
-        return alert(error.message);
-      }
-
-      const url = data?.signedUrl || null;
-      setReceiptPreview((s) => ({ ...s, [key]: url }));
-      setReceiptLoading((s) => ({ ...s, [key]: false }));
-    } catch (e) {
-      console.error(e);
-    }
-  }
-
-  function clearReceiptPreview(id) {
-    setReceiptPreview((s) => {
-      const next = { ...s };
-      delete next[id];
-      return next;
-    });
-  }
-
-async function removeTx(id) {
-    if (!confirm("Remover este lançamento da carteira?")) return;
+  async function removeTx(id) {
+    if (!confirm("Remover este lancamento da carteira?")) return;
     setLoading(true);
-    const { error } = await supabase.from("wallet_transactions").delete().eq("id", id);
+    const { error } = await supabase.from("wallet_transactions").delete().eq("id", id).eq("user_id", userId);
     setLoading(false);
     if (error) return alert(error.message);
     fetchWallet();
@@ -194,18 +141,18 @@ async function removeTx(id) {
 
   function kindLabel(k) {
     if (k === "income") return "Entrada";
-    if (k === "expense_payment") return "Saída (pago)";
-    if (k === "manual_expense") return "Saída (manual)";
-    return k || "Lançamento";
+    if (k === "expense_payment") return "Saida (pago)";
+    if (k === "manual_expense") return "Saida (manual)";
+    return k || "Lancamento";
   }
 
   return (
     <div style={{ ...styles.card, padding: 14 }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
         <div>
-          <div style={{ fontWeight: 900, fontSize: 16 }}>👛 Carteira</div>
+          <div style={{ fontWeight: 900, fontSize: 16 }}>Carteira</div>
           <div style={{ ...styles.muted, fontSize: 13 }}>
-            Saldo total • entradas manuais e saídas automáticas ao marcar despesas como pagas
+            Saldo total, entradas manuais e saidas automaticas ao marcar despesas como pagas
           </div>
         </div>
         <span style={{ ...styles.badge, fontSize: 13 }}>{loading ? "Atualizando..." : "Global"}</span>
@@ -213,22 +160,20 @@ async function removeTx(id) {
 
       <div style={{ ...styles.gridAuto, marginTop: 12 }}>
         <div style={{ ...styles.card, background: "var(--card2)" }}>
-          <div style={{ ...styles.muted, fontSize: 13 }}>Pendências do mês</div>
+          <div style={{ ...styles.muted, fontSize: 13 }}>Pendencias do mes</div>
           <div style={{ marginTop: 6, fontSize: 20, fontWeight: 900 }}>{moneyBRL(monthSummary.pending)}</div>
-          <div style={{ ...styles.muted, fontSize: 12, marginTop: 4 }}>Gastos ativos ainda não pagos (mês atual)</div>
+          <div style={{ ...styles.muted, fontSize: 12, marginTop: 4 }}>Gastos ativos ainda nao pagos (mes atual)</div>
         </div>
 
         <div style={{ ...styles.card, background: "var(--card2)" }}>
           <div style={{ ...styles.muted, fontSize: 13 }}>Saldo livre</div>
           <div style={{ marginTop: 6, fontSize: 20, fontWeight: 900 }}>{moneyBRL(monthSummary.freeAfterPending)}</div>
-          <div style={{ ...styles.muted, fontSize: 12, marginTop: 4 }}>Saldo após pagar pendências do mês</div>
+          <div style={{ ...styles.muted, fontSize: 12, marginTop: 4 }}>Saldo apos pagar pendencias do mes</div>
         </div>
 
         <div style={{ ...styles.card, background: "var(--card2)" }}>
           <div style={{ ...styles.muted, fontSize: 13 }}>Comprometimento</div>
-          <div style={{ marginTop: 6, fontSize: 20, fontWeight: 900 }}>
-            {Math.round(monthSummary.commitmentPct)}%
-          </div>
+          <div style={{ marginTop: 6, fontSize: 20, fontWeight: 900 }}>{Math.round(monthSummary.commitmentPct)}%</div>
           <div style={{ height: 8, borderRadius: 999, background: "rgba(255,255,255,.08)", marginTop: 8, overflow: "hidden" }}>
             <div style={{ height: "100%", width: `${Math.min(100, Math.max(0, monthSummary.commitmentPct))}%`, background: "rgba(255,255,255,.35)" }} />
           </div>
@@ -246,7 +191,7 @@ async function removeTx(id) {
         </div>
 
         <div style={{ ...styles.card, gridColumn: "1 / -1", background: "var(--card2)" }}>
-          <div style={{ fontWeight: 800 }}>Adicionar entrada/saída</div>
+          <div style={{ fontWeight: 800 }}>Adicionar entrada/saida</div>
           <form onSubmit={addEntry} style={{ display: "grid", gap: 10, marginTop: 10 }}>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
               <input
@@ -267,12 +212,12 @@ async function removeTx(id) {
             />
             <input
               style={styles.input}
-              placeholder="Descrição (opcional)"
+              placeholder="Descricao (opcional)"
               value={desc}
               onChange={(e) => setDesc(e.target.value)}
             />
             <button style={styles.btn} type="submit" disabled={loading}>
-              Lançar
+              Lancar
             </button>
           </form>
         </div>
@@ -291,12 +236,12 @@ async function removeTx(id) {
             gap: 10,
           }}
         >
-          <span>Últimos 30 lançamentos</span>
-          <span style={{ ...styles.muted, fontSize: 12 }}>{loading ? "…" : ""}</span>
+          <span>Ultimos 30 lancamentos</span>
+          <span style={{ ...styles.muted, fontSize: 12 }}>{loading ? "..." : ""}</span>
         </div>
 
         {(tx ?? []).length === 0 ? (
-          <div style={{ padding: 12, ...styles.muted }}>Sem lançamentos ainda.</div>
+          <div style={{ padding: 12, ...styles.muted }}>Sem lancamentos ainda.</div>
         ) : (
           (tx ?? []).map((r) => (
             <div
@@ -313,7 +258,7 @@ async function removeTx(id) {
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontWeight: 800, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                   {kindLabel(r.kind)}
-                  {(r.description || r.note) ? ` • ${r.description || r.note}` : ""}
+                  {(r.description || r.note) ? ` - ${r.description || r.note}` : ""}
                 </div>
                 <div style={{ ...styles.muted, fontSize: 12 }}>{new Date(r.created_at).toLocaleString("pt-BR")}</div>
               </div>
@@ -328,4 +273,3 @@ async function removeTx(id) {
     </div>
   );
 }
-

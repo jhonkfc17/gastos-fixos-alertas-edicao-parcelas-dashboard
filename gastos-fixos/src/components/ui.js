@@ -48,7 +48,6 @@ export const styles = {
     color: "var(--text)",
   },
   btn: {
-
     padding: "10px 12px",
     borderRadius: 12,
     border: "1px solid rgba(255,255,255,.10)",
@@ -56,6 +55,15 @@ export const styles = {
     color: "var(--primaryText)",
     cursor: "pointer",
     fontWeight: 800,
+  },
+  btnSmall: {
+    padding: "8px 10px",
+    borderRadius: 10,
+    border: "1px solid rgba(255,255,255,.10)",
+    background: "linear-gradient(135deg, var(--primary) 0%, var(--primary2) 120%)",
+    color: "var(--primaryText)",
+    cursor: "pointer",
+    fontWeight: 700,
   },
   btnGhost: {
     padding: "10px 12px",
@@ -88,6 +96,20 @@ export function getTheme() {
   return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
 }
 
+export function roundMoney(value) {
+  return Math.round(Number(value || 0) * 100) / 100;
+}
+
+export function parseMoneyInput(value) {
+  if (value === null || value === undefined) return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+
+  const normalized = raw.replace(/\s/g, "").replace(/\./g, "").replace(",", ".");
+  const num = Number(normalized);
+  return Number.isFinite(num) ? num : null;
+}
+
 export function moneyBRL(value) {
   const n = Number(value || 0);
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -108,67 +130,15 @@ export function nextDueDate(day, baseDate = new Date()) {
   const dueDay = clampDay(day);
   const y = baseDate.getFullYear();
   const m = baseDate.getMonth();
-  let d = new Date(y, m, dueDay);
+
+  let due = new Date(y, m, dueDay);
   const today = new Date(y, m, baseDate.getDate());
-  if (d < today) d = new Date(y, m + 1, dueDay);
-  return d;
+  if (due < today) due = new Date(y, m + 1, dueDay);
+
+  return due;
 }
 
-export function ymIndex(year, month) {
-  return Number(year) * 12 + (Number(month) - 1);
-}
-
-export function expenseMonthInfo(expense, year, month) {
-  // For installment expenses, only show during the installment window.
-  if (!expense?.is_installment) {
-    return { applicable: true, installmentIndex: null, installmentTotal: null };
-  }
-
-  const total = Number(expense.installment_total);
-  const sy = Number(expense.installment_start_year);
-  const sm = Number(expense.installment_start_month);
-
-  if (!Number.isFinite(total) || total <= 0 || !Number.isFinite(sy) || !Number.isFinite(sm)) {
-    return { applicable: true, installmentIndex: null, installmentTotal: total || null };
-  }
-
-  const diff = ymIndex(year, month) - ymIndex(sy, sm);
-  const applicable = diff >= 0 && diff < total;
-  return {
-    applicable,
-    installmentIndex: applicable ? diff + 1 : null,
-    installmentTotal: total,
-  };
-}
-
-export function isInstallmentCompleted(expense, refYear, refMonth) {
-  if (!expense?.is_installment) return false;
-  const total = Number(expense.installment_total);
-  const sy = Number(expense.installment_start_year);
-  const sm = Number(expense.installment_start_month);
-  if (!Number.isFinite(total) || total <= 0 || !Number.isFinite(sy) || !Number.isFinite(sm)) return false;
-
-  const end = ymIndex(sy, sm) + (total - 1);
-  return ymIndex(refYear, refMonth) > end;
-}
-
-export function installmentEndLabel(expense) {
-  if (!expense?.is_installment) return null;
-  const total = Number(expense.installment_total);
-  const sy = Number(expense.installment_start_year);
-  const sm = Number(expense.installment_start_month);
-  if (!Number.isFinite(total) || total <= 0 || !Number.isFinite(sy) || !Number.isFinite(sm)) return null;
-
-  const endIndex = ymIndex(sy, sm) + (total - 1);
-  // convert back to year/month
-  const y = Math.floor(endIndex / 12);
-  const m = (endIndex % 12) + 1;
-  return `${String(m).padStart(2, "0")}/${y}`;
-}
-
-export const moneyBRL = formatBRL;
-
-function ymToIndex(year, month) {
+function ymIndex(year, month) {
   return Number(year) * 12 + (Number(month) - 1);
 }
 
@@ -181,9 +151,9 @@ function installmentBounds(item) {
   if (!Number.isFinite(startMonth) || startMonth < 1 || startMonth > 12) return null;
   if (!Number.isFinite(startYear) || startYear < 1) return null;
 
-  const start = ymToIndex(startYear, startMonth);
+  const start = ymIndex(startYear, startMonth);
   const end = start + total - 1;
-  return { start, end, total, startMonth, startYear };
+  return { start, end, total };
 }
 
 export function expenseMonthInfo(item, year, month) {
@@ -192,6 +162,7 @@ export function expenseMonthInfo(item, year, month) {
     return {
       applicable: true,
       isInstallment: false,
+      installmentIndex: null,
       installmentNumber: null,
       installmentTotal: null,
     };
@@ -202,19 +173,21 @@ export function expenseMonthInfo(item, year, month) {
     return {
       applicable: true,
       isInstallment: true,
+      installmentIndex: null,
       installmentNumber: null,
       installmentTotal: Number(item?.installment_total) || null,
     };
   }
 
-  const current = ymToIndex(year, month);
+  const current = ymIndex(year, month);
   const applicable = current >= bounds.start && current <= bounds.end;
-  const installmentNumber = applicable ? current - bounds.start + 1 : null;
+  const number = applicable ? current - bounds.start + 1 : null;
 
   return {
     applicable,
     isInstallment: true,
-    installmentNumber,
+    installmentIndex: number,
+    installmentNumber: number,
     installmentTotal: bounds.total,
   };
 }
@@ -223,8 +196,7 @@ export function isInstallmentCompleted(item, year, month) {
   if (!item?.is_installment) return false;
   const bounds = installmentBounds(item);
   if (!bounds) return false;
-  const current = ymToIndex(year, month);
-  return current > bounds.end;
+  return ymIndex(year, month) > bounds.end;
 }
 
 export function installmentEndLabel(item) {
@@ -234,18 +206,4 @@ export function installmentEndLabel(item) {
   const endYear = Math.floor(bounds.end / 12);
   const endMonth = (bounds.end % 12) + 1;
   return `${String(endMonth).padStart(2, "0")}/${endYear}`;
-}
-
-export function nextDueDate(dueDay) {
-  const today = new Date()
-  const currentMonth = today.getMonth()
-  const currentYear = today.getFullYear()
-
-  let dueDate = new Date(currentYear, currentMonth, dueDay)
-
-  if (today > dueDate) {
-    dueDate = new Date(currentYear, currentMonth + 1, dueDay)
-  }
-
-  return dueDate.toISOString()
 }
