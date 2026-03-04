@@ -9,6 +9,7 @@ export default function PaymentHistory({ userId, defaultYear, defaultMonth }) {
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState([]);
   const [q, setQ] = useState("");
+  const [kindFilter, setKindFilter] = useState("all");
 
   useEffect(() => {
     if (defaultYear) setYear(defaultYear);
@@ -19,19 +20,24 @@ export default function PaymentHistory({ userId, defaultYear, defaultMonth }) {
     if (!userId) return;
     fetchPayments().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, year, month]);
+  }, [userId, year, month, kindFilter]);
 
   async function fetchPayments() {
     setLoading(true);
-    const { data, error } = await supabase
+    let query = supabase
       .from("wallet_transactions")
-      .select("id, amount, description, note, created_at, ref_year, ref_month, ref_expense_id")
+      .select("id, kind, amount, description, note, created_at, ref_year, ref_month, ref_expense_id")
       .eq("user_id", userId)
-      .eq("kind", "expense_payment")
       .eq("ref_year", year)
       .eq("ref_month", month)
       .order("created_at", { ascending: false })
       .limit(500);
+
+    if (kindFilter === "all") query = query.in("kind", ["expense_payment", "manual_expense"]);
+    if (kindFilter === "fixed") query = query.eq("kind", "expense_payment");
+    if (kindFilter === "variable") query = query.eq("kind", "manual_expense");
+
+    const { data, error } = await query;
 
     setLoading(false);
     if (error) return alert(error.message);
@@ -59,7 +65,7 @@ export default function PaymentHistory({ userId, defaultYear, defaultMonth }) {
         <div>
           <div style={{ fontWeight: 900, fontSize: 16 }}>Historico de pagamentos</div>
           <div style={{ ...styles.muted, fontSize: 13 }}>
-            Pagamentos registrados ao marcar despesas como pagas (saidas automaticas na carteira)
+            Pagamentos de fixos + saidas variaveis da carteira
           </div>
         </div>
         <span style={{ ...styles.badge, fontSize: 13 }}>{loading ? "Carregando..." : monthTitle}</span>
@@ -98,6 +104,14 @@ export default function PaymentHistory({ userId, defaultYear, defaultMonth }) {
               </select>
             </div>
             <div>
+              <div style={{ ...styles.muted, fontSize: 12, marginBottom: 6 }}>Tipo</div>
+              <select style={styles.input} value={kindFilter} onChange={(e) => setKindFilter(e.target.value)}>
+                <option value="all">Fixos + variaveis</option>
+                <option value="fixed">Somente fixos</option>
+                <option value="variable">Somente variaveis</option>
+              </select>
+            </div>
+            <div>
               <div style={{ ...styles.muted, fontSize: 12, marginBottom: 6 }}>Buscar</div>
               <input style={styles.input} placeholder="Ex.: aluguel, parcela 2/10..." value={q} onChange={(e) => setQ(e.target.value)} />
             </div>
@@ -130,7 +144,7 @@ export default function PaymentHistory({ userId, defaultYear, defaultMonth }) {
               >
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontWeight: 850, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {r.description || r.note || "(sem descricao)"}
+                    {(r.kind === "manual_expense" ? "[Variavel] " : "") + (r.description || r.note || "(sem descricao)")}
                   </div>
                   <div style={{ ...styles.muted, fontSize: 12, marginTop: 2 }}>{new Date(r.created_at).toLocaleString()}</div>
                 </div>

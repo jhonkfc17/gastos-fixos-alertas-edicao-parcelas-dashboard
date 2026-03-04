@@ -137,6 +137,8 @@ export default function WalletPanel({ userId, items = [], paidExpenseIds = [], r
       amount: roundMoney(normalizedAmount),
       description: descriptionText,
       note: descriptionText,
+      ref_year: dt.getFullYear(),
+      ref_month: dt.getMonth() + 1,
       created_at: dt.toISOString(),
     };
 

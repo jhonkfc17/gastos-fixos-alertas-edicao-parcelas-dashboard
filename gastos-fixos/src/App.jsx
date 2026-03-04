@@ -20,6 +20,8 @@ export default function App() {
   const [statusRefreshKey, setStatusRefreshKey] = useState(0);
   const [paidExpenseIds, setPaidExpenseIds] = useState([]);
   const [monthPaidExpenseIds, setMonthPaidExpenseIds] = useState([]);
+  const [variableSpentMonth, setVariableSpentMonth] = useState(0);
+  const [variableByCategory, setVariableByCategory] = useState([]);
 
   const [ym, setYm] = useState(() => {
     const d = new Date();
@@ -39,12 +41,59 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
 
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    fetchCurrentMonthVariable().catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user?.id, walletRefresh]);
+
   async function fetchItems() {
     setLoading(true);
     const { data, error } = await supabase.from("fixed_expenses").select("*").order("created_at", { ascending: false });
     setLoading(false);
     if (error) return alert(error.message);
     setItems(data ?? []);
+  }
+
+  function parseVariableCategory(row) {
+    const text = String(row?.description || row?.note || "").trim();
+    const m = text.match(/^\[(.+?)\]/);
+    if (m?.[1]) return m[1];
+    return "Variaveis";
+  }
+
+  async function fetchCurrentMonthVariable() {
+    const userId = session?.user?.id;
+    if (!userId) return;
+
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+    const end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999).toISOString();
+
+    const { data, error } = await supabase
+      .from("wallet_transactions")
+      .select("amount, description, note, created_at")
+      .eq("user_id", userId)
+      .eq("kind", "manual_expense")
+      .gte("created_at", start)
+      .lte("created_at", end);
+
+    if (error) return;
+
+    const rows = data ?? [];
+    const total = rows.reduce((acc, r) => acc + Math.abs(Number(r.amount || 0)), 0);
+    const byCat = new Map();
+    for (const r of rows) {
+      const cat = parseVariableCategory(r);
+      byCat.set(cat, (byCat.get(cat) || 0) + Math.abs(Number(r.amount || 0)));
+    }
+
+    setVariableSpentMonth(total);
+    setVariableByCategory(
+      [...byCat.entries()]
+        .map(([name, value]) => ({ name, value }))
+        .sort((a, b) => b.value - a.value)
+    );
   }
 
   function handleStatusChange(y, m, rows) {
@@ -369,7 +418,12 @@ export default function App() {
         />
 
         <div style={{ marginTop: 14 }}>
-          <Dashboard items={items} paidExpenseIds={paidExpenseIds} />
+          <Dashboard
+            items={items}
+            paidExpenseIds={paidExpenseIds}
+            variableSpentMonth={variableSpentMonth}
+            variableByCategory={variableByCategory}
+          />
         </div>
 
         <div style={{ marginTop: 14 }}>

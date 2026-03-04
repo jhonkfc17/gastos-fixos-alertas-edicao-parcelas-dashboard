@@ -14,7 +14,7 @@ import {
 import { expenseMonthInfo, moneyBRL, nextDueDate, styles } from "./ui";
 import { CHART_COLORS, DarkTooltip, axisLine, axisTick, gridStroke } from "./chartTheme";
 
-export default function Dashboard({ items, paidExpenseIds = [] }) {
+export default function Dashboard({ items, paidExpenseIds = [], variableSpentMonth = 0, variableByCategory = [] }) {
   const now = new Date();
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
@@ -27,17 +27,19 @@ export default function Dashboard({ items, paidExpenseIds = [] }) {
       .filter((i) => expenseMonthInfo(i, year, month).applicable);
   }, [items, year, month]);
 
-  const totalActive = useMemo(() => activeThisMonth.reduce((acc, i) => acc + Number(i.amount || 0), 0), [activeThisMonth]);
+  const totalActive = useMemo(() => {
+    const fixed = activeThisMonth.reduce((acc, i) => acc + Number(i.amount || 0), 0);
+    return fixed + Number(variableSpentMonth || 0);
+  }, [activeThisMonth, variableSpentMonth]);
 
   const byCategory = useMemo(() => {
     const map = new Map();
-    for (const i of activeThisMonth) {
-      map.set(i.category, (map.get(i.category) || 0) + Number(i.amount || 0));
-    }
+    for (const i of activeThisMonth) map.set(i.category, (map.get(i.category) || 0) + Number(i.amount || 0));
+    for (const c of variableByCategory ?? []) map.set(c.name, (map.get(c.name) || 0) + Number(c.value || 0));
     return [...map.entries()]
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value);
-  }, [activeThisMonth]);
+  }, [activeThisMonth, variableByCategory]);
 
   const nextDue = useMemo(() => {
     return [...activeThisMonth]
@@ -54,7 +56,7 @@ export default function Dashboard({ items, paidExpenseIds = [] }) {
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 14 }}>
       <div style={styles.card}>
         <div style={{ fontWeight: 900, fontSize: 16 }}>Resumo do mês</div>
-        <div style={{ ...styles.muted, fontSize: 13 }}>Total mensal (ativos)</div>
+        <div style={{ ...styles.muted, fontSize: 13 }}>Fixos ativos + saídas variáveis do mês</div>
         <div style={{ marginTop: 8, fontSize: 26, fontWeight: 950 }}>{moneyBRL(totalActive)}</div>
       </div>
 

@@ -34,6 +34,7 @@ export default function MonthlyControl({
   const [status, setStatus] = useState([]);
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState([]);
+  const [variableSpentMonth, setVariableSpentMonth] = useState(0);
 
   useEffect(() => {
     if (year) setLocalYear(year);
@@ -61,7 +62,29 @@ export default function MonthlyControl({
     const rows = data ?? [];
     setStatus(rows);
     onStatusChange?.(localYear, localMonth, rows);
+    await fetchVariableMonth();
     fetchHistory().catch(() => {});
+  }
+
+  async function fetchVariableMonth() {
+    if (!userId) return;
+    const start = new Date(localYear, localMonth - 1, 1).toISOString();
+    const end = new Date(localYear, localMonth, 0, 23, 59, 59, 999).toISOString();
+
+    const { data, error } = await supabase
+      .from("wallet_transactions")
+      .select("amount, created_at")
+      .eq("user_id", userId)
+      .eq("kind", "manual_expense")
+      .gte("created_at", start)
+      .lte("created_at", end);
+
+    if (error) {
+      setVariableSpentMonth(0);
+      return;
+    }
+    const total = (data ?? []).reduce((acc, r) => acc + Math.abs(Number(r.amount || 0)), 0);
+    setVariableSpentMonth(total);
   }
 
   async function fetchHistory() {
@@ -100,6 +123,25 @@ export default function MonthlyControl({
       if (!expenseMonthInfo(exp, row.year, row.month).applicable) continue;
       const paidValue = Number(row.paid_amount ?? exp.amount ?? 0);
       byKey.set(key, (byKey.get(key) || 0) + paidValue);
+    }
+
+    const rangeStart = new Date(points[0].year, points[0].month - 1, 1).toISOString();
+    const rangeEnd = new Date(points[points.length - 1].year, points[points.length - 1].month, 0, 23, 59, 59, 999).toISOString();
+    const variable = await supabase
+      .from("wallet_transactions")
+      .select("amount, created_at")
+      .eq("user_id", userId)
+      .eq("kind", "manual_expense")
+      .gte("created_at", rangeStart)
+      .lte("created_at", rangeEnd);
+
+    if (!variable.error) {
+      for (const row of variable.data ?? []) {
+        const d = new Date(row.created_at);
+        const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
+        if (!byKey.has(key)) continue;
+        byKey.set(key, (byKey.get(key) || 0) + Math.abs(Number(row.amount || 0)));
+      }
     }
 
     const out = points.map((p) => {
@@ -222,8 +264,8 @@ export default function MonthlyControl({
   }, [status]);
 
   const totalMonth = useMemo(() => {
-    return applicableItems.reduce((acc, i) => acc + Number(i.amount || 0), 0);
-  }, [applicableItems]);
+    return applicableItems.reduce((acc, i) => acc + Number(i.amount || 0), 0) + Number(variableSpentMonth || 0);
+  }, [applicableItems, variableSpentMonth]);
 
   const paidMonth = useMemo(() => {
     let sum = 0;
@@ -233,8 +275,8 @@ export default function MonthlyControl({
       if (!exp) continue;
       sum += Number(s.paid_amount ?? exp.amount ?? 0);
     }
-    return sum;
-  }, [status, applicableItems]);
+    return sum + Number(variableSpentMonth || 0);
+  }, [status, applicableItems, variableSpentMonth]);
 
   const pieData = useMemo(() => {
     const paid = Math.max(0, paidMonth);
@@ -250,7 +292,9 @@ export default function MonthlyControl({
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
         <div>
           <div style={{ fontWeight: 900, fontSize: 16 }}>Controle mensal</div>
-          <div style={{ ...styles.muted, fontSize: 13 }}>{ymLabel(localYear, localMonth)} - somente gastos ativos aplicaveis</div>
+          <div style={{ ...styles.muted, fontSize: 13 }}>
+            {ymLabel(localYear, localMonth)} - fixos ativos + saidas variaveis do mes
+          </div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <button style={styles.btnGhost} onClick={prevMonth} type="button">&lt;</button>
