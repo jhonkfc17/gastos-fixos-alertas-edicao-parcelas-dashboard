@@ -482,7 +482,7 @@ export default function App() {
 
   return (
     <div style={{ minHeight: "100vh" }}>
-      <div style={styles.container}>
+      <div className="appRootContainer" style={styles.container}>
         <TopBar
           email={session.user.email}
           onRefresh={fetchItems}

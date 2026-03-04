@@ -185,8 +185,8 @@ export default function WalletPanel({ userId, items = [], paidExpenseIds = [], r
   }
 
   return (
-    <div style={{ ...styles.card, padding: 14 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+    <div className="mobileCardTight" style={{ ...styles.card, padding: 14 }}>
+      <div className="walletHeader" style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
         <div>
           <div style={{ fontWeight: 900, fontSize: 16 }}>Carteira</div>
           <div style={{ ...styles.muted, fontSize: 13 }}>
@@ -196,20 +196,20 @@ export default function WalletPanel({ userId, items = [], paidExpenseIds = [], r
         <span style={{ ...styles.badge, fontSize: 13 }}>{loading ? "Atualizando..." : "Global"}</span>
       </div>
 
-      <div style={{ ...styles.gridAuto, marginTop: 12 }}>
-        <div style={{ ...styles.card, background: "var(--card2)" }}>
+      <div className="walletSummaryGrid" style={{ ...styles.gridAuto, marginTop: 12 }}>
+        <div className="walletStatCard" style={{ ...styles.card, background: "var(--card2)" }}>
           <div style={{ ...styles.muted, fontSize: 13 }}>Pendencias do mes</div>
           <div style={{ marginTop: 6, fontSize: 20, fontWeight: 900 }}>{moneyBRL(monthSummary.pending)}</div>
           <div style={{ ...styles.muted, fontSize: 12, marginTop: 4 }}>Gastos ativos ainda nao pagos (mes atual)</div>
         </div>
 
-        <div style={{ ...styles.card, background: "var(--card2)" }}>
+        <div className="walletStatCard" style={{ ...styles.card, background: "var(--card2)" }}>
           <div style={{ ...styles.muted, fontSize: 13 }}>Saldo livre</div>
           <div style={{ marginTop: 6, fontSize: 20, fontWeight: 900 }}>{moneyBRL(monthSummary.freeAfterPending)}</div>
           <div style={{ ...styles.muted, fontSize: 12, marginTop: 4 }}>Saldo apos pagar pendencias do mes</div>
         </div>
 
-        <div style={{ ...styles.card, background: "var(--card2)" }}>
+        <div className="walletStatCard" style={{ ...styles.card, background: "var(--card2)" }}>
           <div style={{ ...styles.muted, fontSize: 13 }}>Comprometimento</div>
           <div style={{ marginTop: 6, fontSize: 20, fontWeight: 900 }}>{Math.round(monthSummary.commitmentPct)}%</div>
           <div style={{ height: 8, borderRadius: 999, background: "rgba(255,255,255,.08)", marginTop: 8, overflow: "hidden" }}>
@@ -217,21 +217,21 @@ export default function WalletPanel({ userId, items = [], paidExpenseIds = [], r
           </div>
         </div>
 
-        <div style={{ ...styles.card, background: "var(--card2)" }}>
+        <div className="walletStatCard" style={{ ...styles.card, background: "var(--card2)" }}>
           <div style={{ ...styles.muted, fontSize: 13 }}>Parcelas restantes</div>
           <div style={{ marginTop: 6, fontSize: 20, fontWeight: 900 }}>{monthSummary.remainingInstallmentCount || 0}</div>
           <div style={{ ...styles.muted, fontSize: 12, marginTop: 4 }}>Total futuro: {moneyBRL(monthSummary.remainingInstallmentTotal)}</div>
         </div>
 
-        <div style={{ ...styles.card, background: "var(--card2)" }}>
+        <div className="walletBalanceCard" style={{ ...styles.card, background: "var(--card2)" }}>
           <div style={{ ...styles.muted, fontSize: 13 }}>Saldo</div>
           <div style={{ marginTop: 6, fontSize: 22, fontWeight: 900 }}>{moneyBRL(balance)}</div>
         </div>
 
-        <div style={{ ...styles.card, gridColumn: "1 / -1", background: "var(--card2)" }}>
+        <div className="walletEntryCard" style={{ ...styles.card, gridColumn: "1 / -1", background: "var(--card2)" }}>
           <div style={{ fontWeight: 800 }}>Adicionar entrada/saida</div>
           <form onSubmit={addEntry} style={{ display: "grid", gap: 10, marginTop: 10 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
+            <div className="walletFormGrid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
               <select style={styles.input} value={entryType} onChange={(e) => setEntryType(e.target.value)}>
                 <option value="expense">Saida variavel</option>
                 <option value="income">Entrada</option>
@@ -279,7 +279,7 @@ export default function WalletPanel({ userId, items = [], paidExpenseIds = [], r
         </div>
       </div>
 
-      <div style={{ marginTop: 12, border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
+      <div className="walletTxList" style={{ marginTop: 12, border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
         <div
           style={{
             padding: 12,
@@ -302,6 +302,7 @@ export default function WalletPanel({ userId, items = [], paidExpenseIds = [], r
           (tx ?? []).map((r) => (
             <div
               key={r.id}
+              className="walletTxRow"
               style={{
                 display: "flex",
                 flexWrap: "wrap",

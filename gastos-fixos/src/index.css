@@ -190,7 +190,70 @@ select option, select optgroup{
 html, body { width: 100%; overflow-x: hidden; }
 #root { width: 100%; }
 
+@media (max-width: 900px){
+  .appRootContainer{
+    padding: 12px !important;
+    max-width: 100% !important;
+  }
+
+  .mobileCardTight{
+    padding: 12px !important;
+  }
+}
+
+@media (max-width: 720px){
+  .dashboardGrid{
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+
+  .dashboardChartBox{
+    height: 220px !important;
+  }
+
+  .walletHeader{
+    align-items: flex-start !important;
+  }
+
+  .walletSummaryGrid{
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+  }
+
+  .walletStatCard{
+    padding: 10px !important;
+    min-width: 0;
+  }
+
+  .walletBalanceCard,
+  .walletEntryCard{
+    grid-column: 1 / -1 !important;
+  }
+
+  .walletFormGrid{
+    grid-template-columns: 1fr !important;
+  }
+
+  .walletTxRow{
+    padding: 10px !important;
+  }
+}
+
 @media (max-width: 480px){
+  .appRootContainer{
+    padding: 8px !important;
+  }
+
+  .walletSummaryGrid{
+    grid-template-columns: 1fr !important;
+    gap: 8px !important;
+  }
+
+  .walletStatCard{
+    padding: 9px !important;
+  }
+
   /* Reduce card padding a bit on very small screens */
   .recharts-wrapper, .recharts-surface { max-width: 100%; }
   button, input, select { min-height: 44px; }

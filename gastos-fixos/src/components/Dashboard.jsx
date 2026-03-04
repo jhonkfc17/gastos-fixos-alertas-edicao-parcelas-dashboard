@@ -53,18 +53,18 @@ export default function Dashboard({ items, paidExpenseIds = [], variableSpentMon
   }, [activeThisMonth, paidSet]);
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 14 }}>
-      <div style={styles.card}>
+    <div className="dashboardGrid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 14 }}>
+      <div className="mobileCardTight" style={styles.card}>
         <div style={{ fontWeight: 900, fontSize: 16 }}>Resumo do mês</div>
         <div style={{ ...styles.muted, fontSize: 13 }}>Fixos ativos + saídas variáveis do mês</div>
         <div style={{ marginTop: 8, fontSize: 26, fontWeight: 950 }}>{moneyBRL(totalActive)}</div>
       </div>
 
-      <div style={{ ...styles.card, gridColumn: "1 / -1" }}>
+      <div className="mobileCardTight" style={{ ...styles.card, gridColumn: "1 / -1" }}>
         <div style={{ fontWeight: 900, fontSize: 16 }}>Ranking por categoria</div>
         <div style={{ ...styles.muted, fontSize: 13 }}>Total mensal (ativos)</div>
 
-        <div style={{ width: "100%", height: 300, marginTop: 10 }}>
+        <div className="dashboardChartBox" style={{ width: "100%", height: 300, marginTop: 10 }}>
           {byCategory.length === 0 ? (
             <div style={{ ...styles.muted, padding: 14 }}>Cadastre um gasto ativo para ver o gráfico.</div>
           ) : (
@@ -129,7 +129,7 @@ export default function Dashboard({ items, paidExpenseIds = [], variableSpentMon
         ) : null}
       </div>
 
-      <div style={styles.card}>
+      <div className="mobileCardTight" style={styles.card}>
         <div style={{ fontWeight: 900, fontSize: 16 }}>Próximos vencimentos</div>
         <div style={{ ...styles.muted, fontSize: 13 }}>Somente pendentes do mês atual</div>
 
@@ -165,11 +165,11 @@ export default function Dashboard({ items, paidExpenseIds = [], variableSpentMon
         )}
       </div>
 
-      <div style={styles.card}>
+      <div className="mobileCardTight" style={styles.card}>
         <div style={{ fontWeight: 900, fontSize: 16 }}>Categorias (donut)</div>
         <div style={{ ...styles.muted, fontSize: 13 }}>Distribuição do total mensal</div>
 
-        <div style={{ width: "100%", height: 280, marginTop: 10 }}>
+        <div className="dashboardChartBox" style={{ width: "100%", height: 280, marginTop: 10 }}>
           {byCategory.length === 0 ? (
             <div style={{ ...styles.muted, padding: 14 }}>Cadastre um gasto ativo para ver o gráfico.</div>
           ) : (
