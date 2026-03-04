@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { expenseMonthInfo, installmentEndLabel, isInstallmentCompleted, moneyBRL, styles, ymLabel } from "./ui";
+import { expenseMonthInfo, formatMoneyInput, installmentEndLabel, isInstallmentCompleted, moneyBRL, parseMoneyInput, styles, ymLabel } from "./ui";
 import EditExpenseModal from "./EditExpenseModal";
 
 const baseCategories = ["Moradia", "Contas", "Assinaturas", "Transporte", "Combustivel", "Saude", "Outros"];
@@ -211,7 +211,11 @@ function Row({ item, paid, selectedYM, onTogglePaid, onToggleActive, onRemove, o
           <input
             style={styles.input}
             defaultValue={String(item.amount)}
-            onBlur={(e) => onUpdateAmount?.(item.id, e.target.value)}
+            onBlur={(e) => {
+              const parsed = parseMoneyInput(e.target.value);
+              if (Number.isFinite(parsed)) e.target.value = formatMoneyInput(parsed);
+              onUpdateAmount?.(item.id, e.target.value);
+            }}
             title={`Atual: ${moneyBRL(item.amount)}`}
           />
         </div>

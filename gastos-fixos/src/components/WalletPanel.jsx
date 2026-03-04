@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
-import { expenseMonthInfo, moneyBRL, parseMoneyInput, roundMoney, styles } from "./ui";
+import { expenseMonthInfo, formatMoneyInput, moneyBRL, parseMoneyInput, roundMoney, styles } from "./ui";
 
 function isMissingColumnError(error, column) {
   const msg = String(error?.message || "").toLowerCase();
@@ -248,6 +248,10 @@ export default function WalletPanel({ userId, items = [], paidExpenseIds = [], r
                 placeholder={entryType === "income" ? "Valor da entrada (ex.: 2500)" : "Valor da saida (ex.: 120)"}
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
+                onBlur={(e) => {
+                  const parsed = parseMoneyInput(e.target.value);
+                  if (Number.isFinite(parsed)) setAmount(formatMoneyInput(parsed));
+                }}
                 inputMode="decimal"
               />
               <input style={styles.input} type="date" value={date} onChange={(e) => setDate(e.target.value)} />

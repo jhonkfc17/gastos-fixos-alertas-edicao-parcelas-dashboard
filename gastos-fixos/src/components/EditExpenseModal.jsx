@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { moneyBRL, parseMoneyInput, styles } from "./ui";
+import { formatMoneyInput, moneyBRL, parseMoneyInput, styles } from "./ui";
 
 function round2(n) {
   return Math.round(Number(n) * 100) / 100;
@@ -193,6 +193,10 @@ export default function EditExpenseModal({ open, item, onClose, onSave }) {
                   style={styles.input}
                   value={String(form.amount ?? "")}
                   onChange={(e) => set("amount", e.target.value)}
+                  onBlur={(e) => {
+                    const parsed = parseMoneyInput(e.target.value);
+                    if (Number.isFinite(parsed)) set("amount", formatMoneyInput(parsed));
+                  }}
                 />
               </div>
             </div>
@@ -220,6 +224,10 @@ export default function EditExpenseModal({ open, item, onClose, onSave }) {
                     style={styles.input}
                     value={String(form.installment_total_amount ?? "")}
                     onChange={(e) => set("installment_total_amount", e.target.value)}
+                    onBlur={(e) => {
+                      const parsed = parseMoneyInput(e.target.value);
+                      if (Number.isFinite(parsed)) set("installment_total_amount", formatMoneyInput(parsed));
+                    }}
                     placeholder="Ex: 1200"
                   />
                 </div>

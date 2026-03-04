@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { styles } from "./ui";
+import { formatMoneyInput, parseMoneyInput, styles } from "./ui";
 
 const categories = ["Moradia", "Contas", "Assinaturas", "Transporte", "Combustível", "Saúde", "Outros"];
 
@@ -20,7 +20,7 @@ export default function ExpenseForm({ onAdd, loading }) {
 
   const previewMonthly = (() => {
     if (!form.isInstallment) return null;
-    const total = Number(String(form.totalAmount).replace(",", "."));
+    const total = parseMoneyInput(form.totalAmount);
     const n = Number(form.installments);
     if (!Number.isFinite(total) || total <= 0 || !Number.isFinite(n) || n <= 0) return null;
     const per = total / n;
@@ -70,6 +70,10 @@ export default function ExpenseForm({ onAdd, loading }) {
               placeholder="Valor mensal (ex.: 129.90)"
               value={form.amount}
               onChange={(e) => setForm((p) => ({ ...p, amount: e.target.value }))}
+              onBlur={(e) => {
+                const parsed = parseMoneyInput(e.target.value);
+                if (Number.isFinite(parsed)) setForm((p) => ({ ...p, amount: formatMoneyInput(parsed) }));
+              }}
             />
           ) : (
             <input
@@ -105,6 +109,10 @@ export default function ExpenseForm({ onAdd, loading }) {
               placeholder="Valor total (ex.: 1200,00)"
               value={form.totalAmount}
               onChange={(e) => setForm((p) => ({ ...p, totalAmount: e.target.value }))}
+              onBlur={(e) => {
+                const parsed = parseMoneyInput(e.target.value);
+                if (Number.isFinite(parsed)) setForm((p) => ({ ...p, totalAmount: formatMoneyInput(parsed) }));
+              }}
             />
             <input
               style={styles.input}

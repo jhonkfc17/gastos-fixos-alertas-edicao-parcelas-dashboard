@@ -102,12 +102,52 @@ export function roundMoney(value) {
 
 export function parseMoneyInput(value) {
   if (value === null || value === undefined) return null;
-  const raw = String(value).trim();
+  const raw = String(value).trim().replace(/[R$\s]/gi, "");
   if (!raw) return null;
 
-  const normalized = raw.replace(/\s/g, "").replace(/\./g, "").replace(",", ".");
+  const hasComma = raw.includes(",");
+  const hasDot = raw.includes(".");
+
+  let normalized = raw;
+  if (hasComma && hasDot) {
+    // Decide decimal separator by last occurrence.
+    const commaLast = raw.lastIndexOf(",");
+    const dotLast = raw.lastIndexOf(".");
+    if (commaLast > dotLast) {
+      // 1.234,56
+      normalized = raw.replace(/\./g, "").replace(",", ".");
+    } else {
+      // 1,234.56
+      normalized = raw.replace(/,/g, "");
+    }
+  } else if (hasComma) {
+    // 1234,56
+    normalized = raw.replace(/\./g, "").replace(",", ".");
+  } else if (hasDot) {
+    const parts = raw.split(".");
+    if (parts.length > 2) {
+      // 1.234.567, fallback remove thousands dots
+      const dec = parts.pop();
+      normalized = `${parts.join("")}.${dec}`;
+    } else {
+      // Heuristic: if exactly 3 digits after dot in pt-BR, treat dot as thousands.
+      const [intPart, fracPart] = parts;
+      if (/^\d{3}$/.test(fracPart || "")) normalized = `${intPart}${fracPart}`;
+      else normalized = raw;
+    }
+  }
+
   const num = Number(normalized);
   return Number.isFinite(num) ? num : null;
+}
+
+export function formatMoneyInput(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "";
+  return roundMoney(n).toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 }
 
 export function moneyBRL(value) {

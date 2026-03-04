@@ -8,7 +8,7 @@ import ExpenseList from "./components/ExpenseList";
 import MonthlyControl from "./components/MonthlyControl";
 import WalletPanel from "./components/WalletPanel";
 import PaymentHistory from "./components/PaymentHistory";
-import { expenseMonthInfo, parseMoneyInput, roundMoney, styles, ymLabel } from "./components/ui";
+import { expenseMonthInfo, formatMoneyInput, parseMoneyInput, roundMoney, styles, ymLabel } from "./components/ui";
 import { downloadTextFile, toCSV } from "./lib/csv";
 
 export default function App() {
@@ -80,7 +80,7 @@ export default function App() {
       setPayDialog({
         open: true,
         expenseName: expenseName || "",
-        amount: String(suggestedAmount || "").replace(".", ","),
+        amount: Number.isFinite(Number(suggestedAmount)) ? formatMoneyInput(suggestedAmount) : "",
         file: null,
       });
     });
@@ -583,6 +583,10 @@ export default function App() {
                 placeholder="Valor pago (ex.: 934,15)"
                 value={payDialog.amount}
                 onChange={(e) => setPayDialog((p) => ({ ...p, amount: e.target.value }))}
+                onBlur={(e) => {
+                  const parsed = parseMoneyInput(e.target.value);
+                  if (Number.isFinite(parsed)) setPayDialog((p) => ({ ...p, amount: formatMoneyInput(parsed) }));
+                }}
                 inputMode="decimal"
               />
               <input
