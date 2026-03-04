@@ -44,8 +44,31 @@ export default function App() {
   }
 
   async function addExpense(payload) {
+    const toNumber = (v) => Number(String(v ?? "").replace(",", "."));
+    const isInstallment = Boolean(payload?.isInstallment);
+    const installmentCount = toNumber(payload?.installments);
+    const installmentTotalAmount = toNumber(payload?.totalAmount);
+    const monthlyAmount = isInstallment
+      ? installmentTotalAmount / (installmentCount || 1)
+      : toNumber(payload?.amount);
+    const data = {
+      user_id: session?.user?.id,
+      name: String(payload?.name ?? "").trim(),
+      category: String(payload?.category ?? "Contas"),
+      amount: Number.isFinite(monthlyAmount) ? monthlyAmount : 0,
+      due_day: Math.min(31, Math.max(1, toNumber(payload?.dueDay) || 1)),
+      payment_method: String(payload?.payment ?? "").trim() || null,
+      active: Boolean(payload?.active),
+      is_installment: isInstallment,
+      installment_total_amount:
+        isInstallment && Number.isFinite(installmentTotalAmount) ? installmentTotalAmount : null,
+      installment_total: isInstallment && Number.isFinite(installmentCount) ? installmentCount : null,
+      installment_start_month: isInstallment ? toNumber(payload?.startMonth) || null : null,
+      installment_start_year: isInstallment ? toNumber(payload?.startYear) || null : null,
+    };
+
     setSaving(true);
-    const { error } = await supabase.from("fixed_expenses").insert(payload);
+    const { error } = await supabase.from("fixed_expenses").insert(data);
     setSaving(false);
     if (error) return alert(error.message);
     fetchItems();
@@ -136,7 +159,7 @@ export default function App() {
         </div>
 
         <div style={{ marginTop: 14 }}>
-          <ExpenseForm saving={saving} onAdd={addExpense} />
+          <ExpenseForm loading={saving} onAdd={addExpense} />
         </div>
 
         <div style={{ marginTop: 14 }}>
