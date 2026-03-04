@@ -184,3 +184,14 @@ select option, select optgroup{
     grid-column: 1 / -1;
   }
 }
+
+
+/* Mobile polish */
+html, body { width: 100%; overflow-x: hidden; }
+#root { width: 100%; }
+
+@media (max-width: 480px){
+  /* Reduce card padding a bit on very small screens */
+  .recharts-wrapper, .recharts-surface { max-width: 100%; }
+  button, input, select { min-height: 44px; }
+}

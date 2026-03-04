@@ -261,13 +261,13 @@ export default function PaymentHistory({ userId, defaultYear, defaultMonth, onCh
                 style={{
                   padding: "10px 12px",
                   borderTop: "1px solid var(--border)",
-                  display: "grid",
-                  gridTemplateColumns: "1fr auto auto auto",
+                  display: "flex",
+                  flexWrap: "wrap",
                   gap: 10,
-                  alignItems: "start",
+                  alignItems: "flex-start",
                 }}
               >
-                <div style={{ minWidth: 0 }}>
+                <div style={{ minWidth: 0, flex: "1 1 240px" }}>
                   <div style={{ fontWeight: 850, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                     {(r.kind === "manual_expense" ? "[Variavel] " : "") + (r.description || r.note || "(sem descricao)")}
                   </div>
@@ -327,7 +327,7 @@ export default function PaymentHistory({ userId, defaultYear, defaultMonth, onCh
                 value={editing.description}
                 onChange={(e) => setEditing((p) => ({ ...p, description: e.target.value }))}
               />
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
                 <input
                   style={styles.input}
                   placeholder="Valor (R$)"
@@ -387,7 +387,7 @@ export default function PaymentHistory({ userId, defaultYear, defaultMonth, onCh
             }}
           >
             <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", padding: 12, borderBottom: "1px solid var(--border)" }}>
-              <div style={{ minWidth: 0 }}>
+              <div style={{ minWidth: 0, flex: "1 1 240px" }}>
                 <div style={{ fontWeight: 900, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Preview do comprovante</div>
                 <div style={{ ...styles.muted, fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                   {receiptPreview.title}

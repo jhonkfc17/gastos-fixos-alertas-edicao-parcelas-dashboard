@@ -303,15 +303,15 @@ export default function WalletPanel({ userId, items = [], paidExpenseIds = [], r
             <div
               key={r.id}
               style={{
-                display: "grid",
-                gridTemplateColumns: "1fr auto auto",
+                display: "flex",
+                flexWrap: "wrap",
                 gap: 10,
                 padding: 12,
                 borderTop: "1px solid var(--border)",
                 alignItems: "center",
               }}
             >
-              <div style={{ minWidth: 0 }}>
+              <div style={{ minWidth: 0, flex: "1 1 240px" }}>
                 <div style={{ fontWeight: 800, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                   {kindLabel(r.kind)}
                   {(r.description || r.note) ? ` - ${r.description || r.note}` : ""}

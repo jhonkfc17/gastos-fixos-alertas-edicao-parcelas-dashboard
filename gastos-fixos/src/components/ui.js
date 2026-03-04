@@ -1,6 +1,6 @@
 export const styles = {
   container: {
-    padding: 18,
+    padding: "clamp(12px, 4vw, 18px)",
     maxWidth: 1200,
     margin: "0 auto",
   },
@@ -10,14 +10,14 @@ export const styles = {
     justifyContent: "space-between",
     gap: 14,
     flexWrap: "wrap",
-    padding: 16,
+    padding: "clamp(12px, 4vw, 16px)",
     borderRadius: "var(--radius)",
     border: "1px solid var(--border)",
     background: "var(--card)",
     boxShadow: "var(--shadow)",
   },
   h1: {
-    fontSize: 22,
+    fontSize: "clamp(18px, 5vw, 22px)",
     margin: 0,
     letterSpacing: -0.4,
     fontWeight: 900,
