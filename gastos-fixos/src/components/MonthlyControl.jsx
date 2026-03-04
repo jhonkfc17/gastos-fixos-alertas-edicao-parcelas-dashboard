@@ -406,6 +406,7 @@ export default function MonthlyControl({
                   gap: 10,
                   padding: 12,
                   borderTop: "1px solid var(--border)",
+                  background: paid ? "rgba(34,197,94,.10)" : "transparent",
                 }}
               >
                 <div style={{ minWidth: 0 }}>

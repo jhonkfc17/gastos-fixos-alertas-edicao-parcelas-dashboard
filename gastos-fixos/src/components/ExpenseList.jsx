@@ -158,7 +158,12 @@ function Row({ item, paid, selectedYM, onTogglePaid, onToggleActive, onRemove, o
   return (
     <div
       className="expenseRow"
-      style={{ padding: 12, alignItems: "center", borderBottom: "1px solid var(--border)" }}
+      style={{
+        padding: 12,
+        alignItems: "center",
+        borderBottom: "1px solid var(--border)",
+        background: canMark && paid ? "rgba(34,197,94,.10)" : "transparent",
+      }}
     >
       <div className="expenseInfo" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
         <div style={{ fontWeight: 700 }}>
