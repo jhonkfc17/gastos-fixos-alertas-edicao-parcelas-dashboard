@@ -24,12 +24,15 @@ export default function PaymentHistory({ userId, defaultYear, defaultMonth }) {
 
   async function fetchPayments() {
     setLoading(true);
+    const start = new Date(year, month - 1, 1).toISOString();
+    const end = new Date(year, month, 0, 23, 59, 59, 999).toISOString();
+
     let query = supabase
       .from("wallet_transactions")
       .select("id, kind, amount, description, note, created_at, ref_year, ref_month, ref_expense_id")
       .eq("user_id", userId)
-      .eq("ref_year", year)
-      .eq("ref_month", month)
+      .gte("created_at", start)
+      .lte("created_at", end)
       .order("created_at", { ascending: false })
       .limit(500);
 
