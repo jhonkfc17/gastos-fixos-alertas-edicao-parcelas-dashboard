@@ -162,7 +162,8 @@ function Row({ item, paid, selectedYM, onTogglePaid, onToggleActive, onRemove, o
         padding: 12,
         alignItems: "center",
         borderBottom: "1px solid var(--border)",
-        background: canMark && paid ? "rgba(34,197,94,.10)" : "transparent",
+        background: "transparent",
+        boxShadow: canMark && paid ? "inset 4px 0 0 rgba(34,197,94,.85)" : "none",
       }}
     >
       <div className="expenseInfo" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
