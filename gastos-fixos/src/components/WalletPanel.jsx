@@ -9,8 +9,11 @@ function isMissingColumnError(error, column) {
 
 // Carteira GLOBAL (saldo total). Mantem ref_year/ref_month apenas como referencia.
 export default function WalletPanel({ userId, items = [], paidExpenseIds = [], refreshKey, onChanged }) {
+  const variableCategories = ["Combustivel", "Alimentacao", "Transporte", "Lazer", "Saude", "Outros"];
   const [loading, setLoading] = useState(false);
   const [tx, setTx] = useState([]);
+  const [entryType, setEntryType] = useState("expense");
+  const [variableCategory, setVariableCategory] = useState("Combustivel");
   const [amount, setAmount] = useState("");
   const [desc, setDesc] = useState("");
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -107,8 +110,10 @@ export default function WalletPanel({ userId, items = [], paidExpenseIds = [], r
     e?.preventDefault?.();
     if (!userId) return;
 
-    const v = parseMoneyInput(amount);
-    if (!Number.isFinite(v) || v === 0) return alert("Informe um valor valido. Use negativo para saida.");
+    const rawValue = parseMoneyInput(amount);
+    if (!Number.isFinite(rawValue) || rawValue === 0) return alert("Informe um valor valido.");
+
+    const normalizedAmount = entryType === "income" ? Math.abs(rawValue) : -Math.abs(rawValue);
 
     const dt = date ? new Date(`${date}T12:00:00`) : new Date();
     let receiptPath = null;
@@ -124,12 +129,14 @@ export default function WalletPanel({ userId, items = [], paidExpenseIds = [], r
       receiptPath = fileName;
     }
 
+    const labelPrefix = entryType === "expense" ? `[${variableCategory}] ` : "";
+    const descriptionText = `${labelPrefix}${desc?.trim() || ""}`.trim() || null;
     const payload = {
       user_id: userId,
-      kind: v > 0 ? "income" : "manual_expense",
-      amount: roundMoney(v),
-      description: desc?.trim() || null,
-      note: desc?.trim() || null,
+      kind: entryType === "income" ? "income" : "manual_expense",
+      amount: roundMoney(normalizedAmount),
+      description: descriptionText,
+      note: descriptionText,
       created_at: dt.toISOString(),
     };
 
@@ -148,6 +155,8 @@ export default function WalletPanel({ userId, items = [], paidExpenseIds = [], r
 
     setAmount("");
     setDesc("");
+    setEntryType("expense");
+    setVariableCategory("Combustivel");
     setReceiptFile(null);
     fetchWallet();
     onChanged?.();
@@ -218,9 +227,20 @@ export default function WalletPanel({ userId, items = [], paidExpenseIds = [], r
           <div style={{ fontWeight: 800 }}>Adicionar entrada/saida</div>
           <form onSubmit={addEntry} style={{ display: "grid", gap: 10, marginTop: 10 }}>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
+              <select style={styles.input} value={entryType} onChange={(e) => setEntryType(e.target.value)}>
+                <option value="expense">Saida variavel</option>
+                <option value="income">Entrada</option>
+              </select>
+              {entryType === "expense" ? (
+                <select style={styles.input} value={variableCategory} onChange={(e) => setVariableCategory(e.target.value)}>
+                  {variableCategories.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              ) : null}
               <input
                 style={styles.input}
-                placeholder="Valor (ex.: 2500 ou -120)"
+                placeholder={entryType === "income" ? "Valor da entrada (ex.: 2500)" : "Valor da saida (ex.: 120)"}
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 inputMode="decimal"
@@ -243,6 +263,9 @@ export default function WalletPanel({ userId, items = [], paidExpenseIds = [], r
             <button style={styles.btn} type="submit" disabled={loading}>
               Lancar
             </button>
+            <div style={{ ...styles.muted, fontSize: 12 }}>
+              Saidas variaveis sao debitadas automaticamente do saldo (valor negativo).
+            </div>
           </form>
         </div>
       </div>
