@@ -12,7 +12,7 @@ function isMissingColumnError(error, column) {
 
 // Carteira GLOBAL (saldo total). Mantem ref_year/ref_month apenas como referencia.
 export default function WalletPanel({ userId, items = [], paidExpenseIds = [], refreshKey, onChanged }) {
-  const variableCategories = ["Combustivel", "Alimentacao", "Transporte", "Lazer", "Saude", "Cartao de Credito", "Outros"];
+  const variableCategories = ["Combustivel", "Alimentacao", "Transporte", "Lazer", "Saude", "Cartao de Credito", "Caixa de Fusivel", "Outros"];
   const [loading, setLoading] = useState(false);
   const [tx, setTx] = useState([]);
   const [entryType, setEntryType] = useState("expense");

@@ -2,7 +2,7 @@ import React, { useMemo, useState } from "react";
 import { expenseMonthInfo, formatMoneyInput, installmentEndLabel, isInstallmentCompleted, moneyBRL, parseMoneyInput, styles, ymLabel } from "./ui";
 import EditExpenseModal from "./EditExpenseModal";
 
-const baseCategories = ["Moradia", "Contas", "Assinaturas", "Transporte", "Combustivel", "Saude", "Outros"];
+const baseCategories = ["Moradia", "Contas", "Assinaturas", "Transporte", "Combustivel", "Saude", "Caixa de Fusivel", "Outros"];
 
 export default function ExpenseList({
   items,

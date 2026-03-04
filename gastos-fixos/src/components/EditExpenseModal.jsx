@@ -143,7 +143,7 @@ export default function EditExpenseModal({ open, item, onClose, onSave }) {
             <div>
               <div style={{ ...styles.muted, fontSize: 12, marginBottom: 6 }}>Categoria</div>
               <select style={styles.input} value={form.category} onChange={(e) => set("category", e.target.value)}>
-                {["Moradia", "Contas", "Assinaturas", "Transporte", "Combustível", "Saúde", "Outros"].map((c) => (
+                {["Moradia", "Contas", "Assinaturas", "Transporte", "Combustível", "Saúde", "Caixa de Fusivel", "Outros"].map((c) => (
                   <option key={c} value={c}>{c}</option>
                 ))}
               </select>
@@ -276,4 +276,3 @@ export default function EditExpenseModal({ open, item, onClose, onSave }) {
     </div>
   );
 }
-
