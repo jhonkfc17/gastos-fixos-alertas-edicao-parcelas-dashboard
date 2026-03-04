@@ -189,6 +189,14 @@ select option, select optgroup{
 /* Mobile polish */
 html, body { width: 100%; overflow-x: hidden; }
 #root { width: 100%; }
+.appRootContainer{
+  width: 100%;
+  max-width: 100%;
+  overflow-x: clip;
+}
+.appRootContainer *{
+  min-width: 0;
+}
 
 @media (max-width: 900px){
   .appRootContainer{
@@ -202,6 +210,22 @@ html, body { width: 100%; overflow-x: hidden; }
 }
 
 @media (max-width: 720px){
+  .expenseFormGrid2{
+    grid-template-columns: 1fr !important;
+  }
+
+  .expenseFilters{
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    width: 100%;
+  }
+
+  .expenseFilters > *{
+    width: 100% !important;
+    max-width: 100%;
+    min-width: 0;
+  }
+
   .dashboardGrid{
     grid-template-columns: 1fr !important;
     gap: 10px !important;
@@ -237,6 +261,18 @@ html, body { width: 100%; overflow-x: hidden; }
 
   .walletTxRow{
     padding: 10px !important;
+  }
+
+  .expenseRow{
+    overflow: hidden;
+  }
+
+  .expenseActions{
+    grid-template-columns: 1fr !important;
+  }
+
+  .expenseActions button{
+    width: 100%;
   }
 }
 

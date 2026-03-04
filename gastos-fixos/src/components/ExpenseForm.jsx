@@ -43,7 +43,7 @@ export default function ExpenseForm({ onAdd, loading }) {
   }
 
   return (
-    <div style={styles.card}>
+    <div className="mobileCardTight" style={styles.card}>
       <div style={{ fontWeight: 800, fontSize: 16 }}>Novo gasto</div>
       <form onSubmit={submit} style={{ marginTop: 12, display: "grid", gap: 10 }}>
         <input
@@ -53,7 +53,7 @@ export default function ExpenseForm({ onAdd, loading }) {
           onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
         />
 
-        <div style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+        <div className="expenseFormGrid2" style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
           <select
             style={styles.input}
             value={form.category}
@@ -103,7 +103,7 @@ export default function ExpenseForm({ onAdd, loading }) {
         </label>
 
         {form.isInstallment ? (
-          <div style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+          <div className="expenseFormGrid2" style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
             <input
               style={styles.input}
               placeholder="Valor total (ex.: 1200,00)"
@@ -124,7 +124,7 @@ export default function ExpenseForm({ onAdd, loading }) {
         ) : null}
 
         {form.isInstallment ? (
-          <div style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+          <div className="expenseFormGrid2" style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
             <input
               style={styles.input}
               placeholder="Mês início (1-12)"
@@ -140,7 +140,7 @@ export default function ExpenseForm({ onAdd, loading }) {
           </div>
         ) : null}
 
-        <div style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+        <div className="expenseFormGrid2" style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
           <input
             style={styles.input}
             placeholder="Dia (1-31)"

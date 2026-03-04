@@ -44,7 +44,7 @@ export default function ExpenseList({
   }, [items, filter]);
 
   return (
-    <div style={styles.card}>
+    <div className="mobileCardTight" style={styles.card}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "end", gap: 12, flexWrap: "wrap" }}>
         <div>
           <div style={{ fontWeight: 800, fontSize: 16 }}>Meus gastos</div>
