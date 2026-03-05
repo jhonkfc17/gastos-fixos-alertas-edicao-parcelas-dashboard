@@ -1,6 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
-import { moneyBRL, parseMoneyInput, roundMoney, styles } from "./ui";
+import { parseMoneyInput, roundMoney, styles } from "./ui";
+
+function moneyUSD(value) {
+  const n = Number(value || 0);
+  return n.toLocaleString("en-US", { style: "currency", currency: "USD" });
+}
 
 function toInputDateTimeLocal(value = new Date()) {
   const d = new Date(value);
@@ -237,15 +242,15 @@ export default function InvestmentsPanel({ userId }) {
         </div>
         <div style={{ ...styles.card, background: "var(--card2)" }}>
           <div style={{ ...styles.muted, fontSize: 12 }}>Total comprado</div>
-          <div style={{ marginTop: 6, fontSize: 22, fontWeight: 900 }}>{moneyBRL(summary.totalBuy)}</div>
+          <div style={{ marginTop: 6, fontSize: 22, fontWeight: 900 }}>{moneyUSD(summary.totalBuy)}</div>
         </div>
         <div style={{ ...styles.card, background: "var(--card2)" }}>
           <div style={{ ...styles.muted, fontSize: 12 }}>Total vendido</div>
-          <div style={{ marginTop: 6, fontSize: 22, fontWeight: 900 }}>{moneyBRL(summary.totalSell)}</div>
+          <div style={{ marginTop: 6, fontSize: 22, fontWeight: 900 }}>{moneyUSD(summary.totalSell)}</div>
         </div>
         <div style={{ ...styles.card, background: "var(--card2)" }}>
           <div style={{ ...styles.muted, fontSize: 12 }}>Ultimo saldo da banca</div>
-          <div style={{ marginTop: 6, fontSize: 22, fontWeight: 900 }}>{moneyBRL(summary.lastBalance)}</div>
+          <div style={{ marginTop: 6, fontSize: 22, fontWeight: 900 }}>{moneyUSD(summary.lastBalance)}</div>
         </div>
       </div>
 
@@ -255,7 +260,7 @@ export default function InvestmentsPanel({ userId }) {
           <div className="investFormGrid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
             <input
               style={styles.input}
-              placeholder="Saldo atual da banca"
+              placeholder="Saldo atual da banca (USD)"
               value={balanceForm.amount}
               onChange={(e) => setBalanceForm((p) => ({ ...p, amount: e.target.value }))}
               inputMode="decimal"
@@ -314,14 +319,14 @@ export default function InvestmentsPanel({ userId }) {
             />
             <input
               style={styles.input}
-              placeholder="Preco de execucao"
+              placeholder="Preco de execucao (USD)"
               value={form.executionPrice}
               onChange={(e) => setForm((p) => ({ ...p, executionPrice: e.target.value }))}
               inputMode="decimal"
             />
             <input
               style={styles.input}
-              placeholder="Saldo do banco (momento da ordem)"
+              placeholder="Saldo da banca (momento da ordem, USD)"
               value={form.bankBalance}
               onChange={(e) => setForm((p) => ({ ...p, bankBalance: e.target.value }))}
               inputMode="decimal"
@@ -370,14 +375,14 @@ export default function InvestmentsPanel({ userId }) {
                   {o.symbol} - {o.side === "buy" ? "Compra" : "Venda"}
                 </div>
                 <div style={{ ...styles.muted, fontSize: 12, marginTop: 2 }}>
-                  Qtd: {Number(o.quantity || 0)} | Preco: {moneyBRL(o.execution_price)} | Saldo banco: {moneyBRL(o.bank_balance)}
+                  Qtd: {Number(o.quantity || 0)} | Preco: {moneyUSD(o.execution_price)} | Saldo banca: {moneyUSD(o.bank_balance)}
                 </div>
                 <div style={{ ...styles.muted, fontSize: 12 }}>
                   {new Date(o.executed_at).toLocaleString("pt-BR")}
                   {o.note ? ` - ${o.note}` : ""}
                 </div>
               </div>
-              <div style={{ fontWeight: 900 }}>{moneyBRL(o.order_value)}</div>
+              <div style={{ fontWeight: 900 }}>{moneyUSD(o.order_value)}</div>
               <button style={styles.btnGhost} type="button" onClick={() => removeOrder(o.id)}>
                 Remover
               </button>
@@ -413,7 +418,7 @@ export default function InvestmentsPanel({ userId }) {
                 <div style={{ ...styles.muted, fontSize: 12 }}>{new Date(b.recorded_at).toLocaleString("pt-BR")}</div>
                 {b.note ? <div style={{ ...styles.muted, fontSize: 12 }}>{b.note}</div> : null}
               </div>
-              <div style={{ fontWeight: 900 }}>{moneyBRL(b.amount)}</div>
+              <div style={{ fontWeight: 900 }}>{moneyUSD(b.amount)}</div>
             </div>
           ))
         )}
