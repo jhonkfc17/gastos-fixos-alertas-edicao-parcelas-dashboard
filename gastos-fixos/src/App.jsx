@@ -8,6 +8,7 @@ import ExpenseList from "./components/ExpenseList";
 import MonthlyControl from "./components/MonthlyControl";
 import WalletPanel from "./components/WalletPanel";
 import PaymentHistory from "./components/PaymentHistory";
+import InvestmentsPanel from "./components/InvestmentsPanel";
 import { expenseMonthInfo, formatMoneyInput, parseMoneyInput, roundMoney, styles, ymLabel } from "./components/ui";
 import { downloadTextFile, toCSV } from "./lib/csv";
 
@@ -24,6 +25,7 @@ export default function App() {
   const [variableByCategory, setVariableByCategory] = useState([]);
   const [payDialog, setPayDialog] = useState({ open: false, expenseName: "", amount: "", file: null });
   const payDialogResolver = useRef(null);
+  const [activeTab, setActiveTab] = useState("painel");
 
   const [ym, setYm] = useState(() => {
     const d = new Date();
@@ -491,63 +493,88 @@ export default function App() {
           onSignOut={signOut}
         />
 
-        <div style={{ marginTop: 14 }}>
-          <Dashboard
-            items={items}
-            paidExpenseIds={paidExpenseIds}
-            variableSpentMonth={variableSpentMonth}
-            variableByCategory={variableByCategory}
-          />
+        <div style={{ marginTop: 14, display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <button
+            type="button"
+            style={activeTab === "painel" ? styles.btn : styles.btnGhost}
+            onClick={() => setActiveTab("painel")}
+          >
+            Painel financeiro
+          </button>
+          <button
+            type="button"
+            style={activeTab === "investimentos" ? styles.btn : styles.btnGhost}
+            onClick={() => setActiveTab("investimentos")}
+          >
+            Investimentos
+          </button>
         </div>
 
-        <div style={{ marginTop: 14 }}>
-          <WalletPanel
-            userId={session.user.id}
-            items={items}
-            paidExpenseIds={paidExpenseIds}
-            refreshKey={walletRefresh}
-            onChanged={() => setWalletRefresh((v) => v + 1)}
-          />
-        </div>
+        {activeTab === "painel" ? (
+          <>
+            <div style={{ marginTop: 14 }}>
+              <Dashboard
+                items={items}
+                paidExpenseIds={paidExpenseIds}
+                variableSpentMonth={variableSpentMonth}
+                variableByCategory={variableByCategory}
+              />
+            </div>
 
-        <div style={{ marginTop: 14 }}>
-          <ExpenseForm loading={saving} onAdd={addExpense} />
-        </div>
+            <div style={{ marginTop: 14 }}>
+              <WalletPanel
+                userId={session.user.id}
+                items={items}
+                paidExpenseIds={paidExpenseIds}
+                refreshKey={walletRefresh}
+                onChanged={() => setWalletRefresh((v) => v + 1)}
+              />
+            </div>
 
-        <div style={{ marginTop: 14 }}>
-          <ExpenseList
-            items={items}
-            paidExpenseIds={monthPaidExpenseIds}
-            selectedYM={ym}
-            onTogglePaid={(id) => togglePaidForMonth(id, ym)}
-            onToggleActive={(id, nextActive) => toggleActive(id, nextActive)}
-            onRemove={(id) => removeExpense(id)}
-            onUpdateAmount={(id, amount) => updateExpense(id, { amount })}
-            onUpdateFields={(id, fields) => updateExpense(id, fields)}
-          />
-        </div>
+            <div style={{ marginTop: 14 }}>
+              <ExpenseForm loading={saving} onAdd={addExpense} />
+            </div>
 
-        <div style={{ marginTop: 14 }}>
-          <MonthlyControl
-            items={items}
-            userId={session.user.id}
-            year={ym.year}
-            month={ym.month}
-            refreshKey={statusRefreshKey}
-            onChangeYM={setYm}
-            onStatusChange={handleStatusChange}
-            onTogglePaid={togglePaidForMonth}
-            onSetAllPaid={setManyPaidForMonth}
-            onWalletChanged={() => setWalletRefresh((v) => v + 1)}
-          />
-          <div style={{ ...styles.muted, fontSize: 13, marginTop: 10, lineHeight: 1.35 }}>
-            <b>Carteira:</b> entradas manuais + saidas automaticas ao marcar pagamentos do mes (suporta pagamento parcial).
+            <div style={{ marginTop: 14 }}>
+              <ExpenseList
+                items={items}
+                paidExpenseIds={monthPaidExpenseIds}
+                selectedYM={ym}
+                onTogglePaid={(id) => togglePaidForMonth(id, ym)}
+                onToggleActive={(id, nextActive) => toggleActive(id, nextActive)}
+                onRemove={(id) => removeExpense(id)}
+                onUpdateAmount={(id, amount) => updateExpense(id, { amount })}
+                onUpdateFields={(id, fields) => updateExpense(id, fields)}
+              />
+            </div>
+
+            <div style={{ marginTop: 14 }}>
+              <MonthlyControl
+                items={items}
+                userId={session.user.id}
+                year={ym.year}
+                month={ym.month}
+                refreshKey={statusRefreshKey}
+                onChangeYM={setYm}
+                onStatusChange={handleStatusChange}
+                onTogglePaid={togglePaidForMonth}
+                onSetAllPaid={setManyPaidForMonth}
+                onWalletChanged={() => setWalletRefresh((v) => v + 1)}
+              />
+              <div style={{ ...styles.muted, fontSize: 13, marginTop: 10, lineHeight: 1.35 }}>
+                <b>Carteira:</b> entradas manuais + saidas automaticas ao marcar pagamentos do mes (suporta pagamento parcial).
+              </div>
+            </div>
+
+            <div style={{ marginTop: 14 }}>
+              <PaymentHistory userId={session.user.id} defaultYear={ym.year} defaultMonth={ym.month} onChanged={() => setWalletRefresh((v) => v + 1)} />
+            </div>
+          </>
+        ) : (
+          <div style={{ marginTop: 14 }}>
+            <InvestmentsPanel userId={session.user.id} />
           </div>
-        </div>
-
-        <div style={{ marginTop: 14 }}>
-          <PaymentHistory userId={session.user.id} defaultYear={ym.year} defaultMonth={ym.month} onChanged={() => setWalletRefresh((v) => v + 1)} />
-        </div>
+        )}
       </div>
 
       {payDialog.open ? (

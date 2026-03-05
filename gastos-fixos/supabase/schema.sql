@@ -119,3 +119,53 @@ drop policy if exists "monthly_delete_own" on public.monthly_expense_status;
 create policy "monthly_delete_own"
 on public.monthly_expense_status for delete
 using (auth.uid() = user_id);
+
+-- =========================
+-- CRYPTO ORDERS (investimentos)
+-- =========================
+
+create table if not exists public.crypto_orders (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  symbol text not null,
+  side text not null check (side in ('buy', 'sell')),
+  quantity numeric(18,8) not null check (quantity > 0),
+  execution_price numeric(18,8) not null check (execution_price > 0),
+  order_value numeric(18,8) not null check (order_value >= 0),
+  bank_balance numeric(18,2) not null,
+  note text,
+  executed_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_crypto_orders_user on public.crypto_orders(user_id);
+create index if not exists idx_crypto_orders_user_executed_at on public.crypto_orders(user_id, executed_at desc);
+
+drop trigger if exists trg_crypto_orders_updated_at on public.crypto_orders;
+create trigger trg_crypto_orders_updated_at
+before update on public.crypto_orders
+for each row execute function public.set_updated_at();
+
+alter table public.crypto_orders enable row level security;
+
+drop policy if exists "crypto_orders_select_own" on public.crypto_orders;
+create policy "crypto_orders_select_own"
+on public.crypto_orders for select
+using (auth.uid() = user_id);
+
+drop policy if exists "crypto_orders_insert_own" on public.crypto_orders;
+create policy "crypto_orders_insert_own"
+on public.crypto_orders for insert
+with check (auth.uid() = user_id);
+
+drop policy if exists "crypto_orders_update_own" on public.crypto_orders;
+create policy "crypto_orders_update_own"
+on public.crypto_orders for update
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);
+
+drop policy if exists "crypto_orders_delete_own" on public.crypto_orders;
+create policy "crypto_orders_delete_own"
+on public.crypto_orders for delete
+using (auth.uid() = user_id);

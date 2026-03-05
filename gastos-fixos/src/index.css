@@ -210,6 +210,14 @@ html, body { width: 100%; overflow-x: hidden; }
 }
 
 @media (max-width: 720px){
+  .investFormGrid{
+    grid-template-columns: 1fr !important;
+  }
+
+  .investOrderRow{
+    grid-template-columns: 1fr !important;
+  }
+
   .expenseFormGrid2{
     grid-template-columns: 1fr !important;
   }
