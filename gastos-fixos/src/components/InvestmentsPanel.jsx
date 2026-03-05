@@ -209,8 +209,23 @@ export default function InvestmentsPanel({ userId }) {
       : orders.length > 0
         ? Number(orders[0].bank_balance || 0)
         : 0;
-    return { count, totalBuy, totalSell, lastBalance };
+    const pnl = roundMoney(totalSell - totalBuy);
+    return { count, totalBuy, totalSell, lastBalance, pnl };
   }, [orders, balanceEntries]);
+
+  const pnlBySymbol = useMemo(() => {
+    const map = new Map();
+    for (const o of orders) {
+      const key = String(o.symbol || "").toUpperCase() || "SEM_ATIVO";
+      if (!map.has(key)) map.set(key, { symbol: key, buy: 0, sell: 0, pnl: 0 });
+      const row = map.get(key);
+      const v = Math.abs(Number(o.order_value || 0));
+      if (o.side === "sell") row.sell += v;
+      else row.buy += v;
+      row.pnl = roundMoney(row.sell - row.buy);
+    }
+    return [...map.values()].sort((a, b) => b.pnl - a.pnl);
+  }, [orders]);
 
   return (
     <div style={{ ...styles.card, padding: 14 }}>
@@ -251,6 +266,25 @@ export default function InvestmentsPanel({ userId }) {
         <div style={{ ...styles.card, background: "var(--card2)" }}>
           <div style={{ ...styles.muted, fontSize: 12 }}>Ultimo saldo da banca</div>
           <div style={{ marginTop: 6, fontSize: 22, fontWeight: 900 }}>{moneyUSD(summary.lastBalance)}</div>
+        </div>
+        <div
+          style={{
+            ...styles.card,
+            background: "var(--card2)",
+            borderColor: summary.pnl >= 0 ? "rgba(16,185,129,.55)" : "rgba(244,63,94,.55)",
+          }}
+        >
+          <div style={{ ...styles.muted, fontSize: 12 }}>Lucro / Prejuizo</div>
+          <div
+            style={{
+              marginTop: 6,
+              fontSize: 22,
+              fontWeight: 900,
+              color: summary.pnl >= 0 ? "rgb(16,185,129)" : "rgb(244,63,94)",
+            }}
+          >
+            {summary.pnl >= 0 ? "+" : "-"}{moneyUSD(Math.abs(summary.pnl))}
+          </div>
         </div>
       </div>
 
@@ -348,6 +382,37 @@ export default function InvestmentsPanel({ userId }) {
             {savingOrder ? "Salvando..." : "Registrar ordem"}
           </button>
         </form>
+      </div>
+
+      <div style={{ marginTop: 12, border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
+        <div style={{ padding: 12, background: "var(--card2)", borderBottom: "1px solid var(--border)", fontWeight: 800 }}>
+          Resultado por ativo
+        </div>
+        {pnlBySymbol.length === 0 ? (
+          <div style={{ padding: 12, ...styles.muted }}>Sem dados para calcular lucro/prejuizo.</div>
+        ) : (
+          pnlBySymbol.map((p) => (
+            <div
+              key={p.symbol}
+              className="investOrderRow"
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr auto auto auto",
+                gap: 10,
+                alignItems: "center",
+                padding: 12,
+                borderTop: "1px solid var(--border)",
+              }}
+            >
+              <div style={{ fontWeight: 900 }}>{p.symbol}</div>
+              <div style={{ ...styles.muted, fontSize: 13 }}>Comprado: {moneyUSD(p.buy)}</div>
+              <div style={{ ...styles.muted, fontSize: 13 }}>Vendido: {moneyUSD(p.sell)}</div>
+              <div style={{ fontWeight: 900, color: p.pnl >= 0 ? "rgb(16,185,129)" : "rgb(244,63,94)" }}>
+                {p.pnl >= 0 ? "+" : "-"}{moneyUSD(Math.abs(p.pnl))}
+              </div>
+            </div>
+          ))
+        )}
       </div>
 
       <div style={{ marginTop: 12, border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
