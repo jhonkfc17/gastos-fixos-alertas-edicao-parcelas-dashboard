@@ -49,7 +49,7 @@ export default function InvestmentsPanel({ userId }) {
   const [balanceEntries, setBalanceEntries] = useState([]);
 
   const [form, setForm] = useState({
-    symbol: "BTCUSDT",
+    symbol: "BTC/USDT",
     side: "buy",
     quantity: "",
     executionPrice: "",
@@ -116,7 +116,7 @@ export default function InvestmentsPanel({ userId }) {
     e.preventDefault();
     if (!userId) return;
 
-    const symbol = String(form.symbol || "").trim().toUpperCase();
+    const symbol = String(form.symbol || "").trim().toUpperCase().replace("/", "");
     const side = form.side === "sell" ? "sell" : "buy";
     const quantity = parseQuantity(form.quantity);
     const executionPrice = parseMoneyInput(form.executionPrice);
@@ -354,12 +354,14 @@ export default function InvestmentsPanel({ userId }) {
         <div style={{ fontWeight: 800 }}>Nova ordem</div>
         <form onSubmit={addOrder} style={{ display: "grid", gap: 10, marginTop: 10 }}>
           <div className="investFormGrid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
-            <input
+            <select
               style={styles.input}
-              placeholder="Ativo (ex.: BTCUSDT)"
               value={form.symbol}
               onChange={(e) => setForm((p) => ({ ...p, symbol: e.target.value }))}
-            />
+            >
+              <option value="BTC/USDT">BTC/USDT</option>
+              <option value="SOL/USDT">SOL/USDT</option>
+            </select>
             <select
               style={styles.input}
               value={form.side}
