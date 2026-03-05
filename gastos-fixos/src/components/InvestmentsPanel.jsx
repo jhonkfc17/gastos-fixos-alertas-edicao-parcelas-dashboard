@@ -25,6 +25,21 @@ function parseQuantity(value) {
   return Number.isFinite(num) ? num : null;
 }
 
+function getLatestBankBalance(orders = [], balanceEntries = []) {
+  const latestOrder = (orders ?? [])[0];
+  const latestBalanceEntry = (balanceEntries ?? [])[0];
+
+  if (!latestOrder && !latestBalanceEntry) return 0;
+  if (!latestOrder) return Number(latestBalanceEntry?.amount || 0);
+  if (!latestBalanceEntry) return Number(latestOrder?.bank_balance || 0);
+
+  const orderTs = new Date(latestOrder.executed_at).getTime();
+  const balanceTs = new Date(latestBalanceEntry.recorded_at).getTime();
+  return orderTs >= balanceTs
+    ? Number(latestOrder?.bank_balance || 0)
+    : Number(latestBalanceEntry?.amount || 0);
+}
+
 export default function InvestmentsPanel({ userId }) {
   const [loading, setLoading] = useState(false);
   const [savingOrder, setSavingOrder] = useState(false);
@@ -113,11 +128,7 @@ export default function InvestmentsPanel({ userId }) {
     const orderValue = roundMoney(quantity * executionPrice);
     const executedAt = form.executedAt ? new Date(form.executedAt) : new Date();
     if (Number.isNaN(executedAt.getTime())) return alert("Data/hora invalida.");
-    const latestBalance = balanceEntries.length > 0
-      ? Number(balanceEntries[0].amount || 0)
-      : orders.length > 0
-        ? Number(orders[0].bank_balance || 0)
-        : 0;
+    const latestBalance = getLatestBankBalance(orders, balanceEntries);
     const bankBalance = roundMoney(side === "buy" ? latestBalance - orderValue : latestBalance + orderValue);
 
     setSavingOrder(true);
@@ -206,11 +217,7 @@ export default function InvestmentsPanel({ userId }) {
     const totalSell = orders
       .filter((o) => o.side === "sell")
       .reduce((acc, o) => acc + Math.abs(Number(o.order_value || 0)), 0);
-    const lastBalance = balanceEntries.length > 0
-      ? Number(balanceEntries[0].amount || 0)
-      : orders.length > 0
-        ? Number(orders[0].bank_balance || 0)
-        : 0;
+    const lastBalance = getLatestBankBalance(orders, balanceEntries);
     const pnl = roundMoney(totalSell - totalBuy);
     return { count, totalBuy, totalSell, lastBalance, pnl };
   }, [orders, balanceEntries]);
@@ -222,11 +229,7 @@ export default function InvestmentsPanel({ userId }) {
       Number.isFinite(quantity) && Number.isFinite(executionPrice) && quantity > 0 && executionPrice > 0
         ? roundMoney(quantity * executionPrice)
         : 0;
-    const latestBalance = balanceEntries.length > 0
-      ? Number(balanceEntries[0].amount || 0)
-      : orders.length > 0
-        ? Number(orders[0].bank_balance || 0)
-        : 0;
+    const latestBalance = getLatestBankBalance(orders, balanceEntries);
     const projectedBalance = form.side === "sell"
       ? roundMoney(latestBalance + orderValue)
       : roundMoney(latestBalance - orderValue);
