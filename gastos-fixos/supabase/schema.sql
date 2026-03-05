@@ -169,3 +169,49 @@ drop policy if exists "crypto_orders_delete_own" on public.crypto_orders;
 create policy "crypto_orders_delete_own"
 on public.crypto_orders for delete
 using (auth.uid() = user_id);
+
+-- =========================
+-- BANK BALANCE ENTRIES (saldo da banca)
+-- =========================
+
+create table if not exists public.bank_balance_entries (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  amount numeric(18,2) not null check (amount >= 0),
+  entry_type text not null check (entry_type in ('deposit', 'withdraw', 'adjustment')),
+  note text,
+  recorded_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_bank_balance_entries_user on public.bank_balance_entries(user_id);
+create index if not exists idx_bank_balance_entries_user_recorded_at on public.bank_balance_entries(user_id, recorded_at desc);
+
+drop trigger if exists trg_bank_balance_entries_updated_at on public.bank_balance_entries;
+create trigger trg_bank_balance_entries_updated_at
+before update on public.bank_balance_entries
+for each row execute function public.set_updated_at();
+
+alter table public.bank_balance_entries enable row level security;
+
+drop policy if exists "bank_balance_entries_select_own" on public.bank_balance_entries;
+create policy "bank_balance_entries_select_own"
+on public.bank_balance_entries for select
+using (auth.uid() = user_id);
+
+drop policy if exists "bank_balance_entries_insert_own" on public.bank_balance_entries;
+create policy "bank_balance_entries_insert_own"
+on public.bank_balance_entries for insert
+with check (auth.uid() = user_id);
+
+drop policy if exists "bank_balance_entries_update_own" on public.bank_balance_entries;
+create policy "bank_balance_entries_update_own"
+on public.bank_balance_entries for update
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);
+
+drop policy if exists "bank_balance_entries_delete_own" on public.bank_balance_entries;
+create policy "bank_balance_entries_delete_own"
+on public.bank_balance_entries for delete
+using (auth.uid() = user_id);

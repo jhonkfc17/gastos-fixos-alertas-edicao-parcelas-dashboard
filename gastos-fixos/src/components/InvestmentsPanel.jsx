@@ -22,9 +22,12 @@ function parseQuantity(value) {
 
 export default function InvestmentsPanel({ userId }) {
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [savingOrder, setSavingOrder] = useState(false);
+  const [savingBalance, setSavingBalance] = useState(false);
   const [schemaMissing, setSchemaMissing] = useState(false);
   const [orders, setOrders] = useState([]);
+  const [balanceEntries, setBalanceEntries] = useState([]);
+
   const [form, setForm] = useState({
     symbol: "BTCUSDT",
     side: "buy",
@@ -35,37 +38,59 @@ export default function InvestmentsPanel({ userId }) {
     note: "",
   });
 
+  const [balanceForm, setBalanceForm] = useState({
+    amount: "",
+    entryType: "deposit",
+    recordedAt: toInputDateTimeLocal(new Date()),
+    note: "",
+  });
+
   useEffect(() => {
     if (!userId) return;
-    fetchOrders().catch(() => {});
+    fetchAll().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
   function isMissingTableError(error) {
     const msg = String(error?.message || "").toLowerCase();
-    return msg.includes("crypto_orders") && (msg.includes("does not exist") || msg.includes("could not find"));
+    const missing = msg.includes("does not exist") || msg.includes("could not find");
+    return missing && (msg.includes("crypto_orders") || msg.includes("bank_balance_entries"));
   }
 
-  async function fetchOrders() {
+  async function fetchAll() {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("crypto_orders")
-      .select("id, symbol, side, quantity, execution_price, bank_balance, order_value, note, executed_at, created_at")
-      .eq("user_id", userId)
-      .order("executed_at", { ascending: false })
-      .limit(300);
+
+    const [ordersRes, balanceRes] = await Promise.all([
+      supabase
+        .from("crypto_orders")
+        .select("id, symbol, side, quantity, execution_price, bank_balance, order_value, note, executed_at, created_at")
+        .eq("user_id", userId)
+        .order("executed_at", { ascending: false })
+        .limit(300),
+      supabase
+        .from("bank_balance_entries")
+        .select("id, amount, entry_type, note, recorded_at, created_at")
+        .eq("user_id", userId)
+        .order("recorded_at", { ascending: false })
+        .limit(100),
+    ]);
+
     setLoading(false);
 
-    if (error) {
-      if (isMissingTableError(error)) {
+    if (ordersRes.error || balanceRes.error) {
+      const err = ordersRes.error || balanceRes.error;
+      if (isMissingTableError(err)) {
         setSchemaMissing(true);
         setOrders([]);
+        setBalanceEntries([]);
         return;
       }
-      return alert(error.message);
+      return alert(err.message);
     }
+
     setSchemaMissing(false);
-    setOrders(data ?? []);
+    setOrders(ordersRes.data ?? []);
+    setBalanceEntries(balanceRes.data ?? []);
   }
 
   async function addOrder(e) {
@@ -87,7 +112,7 @@ export default function InvestmentsPanel({ userId }) {
     const executedAt = form.executedAt ? new Date(form.executedAt) : new Date();
     if (Number.isNaN(executedAt.getTime())) return alert("Data/hora invalida.");
 
-    setSaving(true);
+    setSavingOrder(true);
     const { error } = await supabase.from("crypto_orders").insert({
       user_id: userId,
       symbol,
@@ -99,12 +124,12 @@ export default function InvestmentsPanel({ userId }) {
       executed_at: executedAt.toISOString(),
       note: String(form.note || "").trim() || null,
     });
-    setSaving(false);
+    setSavingOrder(false);
 
     if (error) {
       if (isMissingTableError(error)) {
         setSchemaMissing(true);
-        return alert("Tabela crypto_orders nao encontrada. Execute o SQL de schema para ativar a aba.");
+        return alert("Tabela de investimentos ausente. Execute o SQL de schema.");
       }
       return alert(error.message);
     }
@@ -117,14 +142,53 @@ export default function InvestmentsPanel({ userId }) {
       note: "",
       executedAt: toInputDateTimeLocal(new Date()),
     }));
-    fetchOrders().catch(() => {});
+    fetchAll().catch(() => {});
+  }
+
+  async function addBalanceEntry(e) {
+    e.preventDefault();
+    if (!userId) return;
+
+    const amount = parseMoneyInput(balanceForm.amount);
+    if (!Number.isFinite(amount) || amount <= 0) return alert("Informe um valor valido para saldo.");
+
+    const recordedAt = balanceForm.recordedAt ? new Date(balanceForm.recordedAt) : new Date();
+    if (Number.isNaN(recordedAt.getTime())) return alert("Data/hora invalida.");
+
+    const entryType = balanceForm.entryType === "withdraw" ? "withdraw" : balanceForm.entryType === "adjustment" ? "adjustment" : "deposit";
+
+    setSavingBalance(true);
+    const { error } = await supabase.from("bank_balance_entries").insert({
+      user_id: userId,
+      amount: roundMoney(amount),
+      entry_type: entryType,
+      recorded_at: recordedAt.toISOString(),
+      note: String(balanceForm.note || "").trim() || null,
+    });
+    setSavingBalance(false);
+
+    if (error) {
+      if (isMissingTableError(error)) {
+        setSchemaMissing(true);
+        return alert("Tabela de saldo da banca ausente. Execute o SQL de schema.");
+      }
+      return alert(error.message);
+    }
+
+    setBalanceForm({
+      amount: "",
+      entryType: "deposit",
+      recordedAt: toInputDateTimeLocal(new Date()),
+      note: "",
+    });
+    fetchAll().catch(() => {});
   }
 
   async function removeOrder(id) {
     if (!confirm("Remover esta ordem?")) return;
     const { error } = await supabase.from("crypto_orders").delete().eq("id", id).eq("user_id", userId);
     if (error) return alert(error.message);
-    fetchOrders().catch(() => {});
+    fetchAll().catch(() => {});
   }
 
   const summary = useMemo(() => {
@@ -135,9 +199,13 @@ export default function InvestmentsPanel({ userId }) {
     const totalSell = orders
       .filter((o) => o.side === "sell")
       .reduce((acc, o) => acc + Math.abs(Number(o.order_value || 0)), 0);
-    const lastBalance = orders.length > 0 ? Number(orders[0].bank_balance || 0) : 0;
+    const lastBalance = balanceEntries.length > 0
+      ? Number(balanceEntries[0].amount || 0)
+      : orders.length > 0
+        ? Number(orders[0].bank_balance || 0)
+        : 0;
     return { count, totalBuy, totalSell, lastBalance };
-  }, [orders]);
+  }, [orders, balanceEntries]);
 
   return (
     <div style={{ ...styles.card, padding: 14 }}>
@@ -145,10 +213,10 @@ export default function InvestmentsPanel({ userId }) {
         <div>
           <div style={{ fontWeight: 900, fontSize: 16 }}>Investimentos</div>
           <div style={{ ...styles.muted, fontSize: 13 }}>
-            Registre ordens de cripto com saldo do banco, preco e data/hora da execucao.
+            Registre ordens de cripto e ajuste o saldo atual da banca.
           </div>
         </div>
-        <button style={styles.btnGhost} type="button" onClick={() => fetchOrders()} disabled={loading}>
+        <button style={styles.btnGhost} type="button" onClick={() => fetchAll()} disabled={loading}>
           {loading ? "Atualizando..." : "Atualizar"}
         </button>
       </div>
@@ -157,7 +225,7 @@ export default function InvestmentsPanel({ userId }) {
         <div style={{ ...styles.card, marginTop: 12, background: "rgba(245,158,11,.12)", borderColor: "rgba(245,158,11,.35)" }}>
           <div style={{ fontWeight: 800 }}>Schema ausente para investimentos</div>
           <div style={{ ...styles.muted, marginTop: 6, fontSize: 13 }}>
-            Execute o SQL atualizado em <code>supabase/schema.sql</code> para criar a tabela <code>crypto_orders</code>.
+            Execute o SQL atualizado em <code>supabase/schema.sql</code> para criar <code>crypto_orders</code> e <code>bank_balance_entries</code>.
           </div>
         </div>
       ) : null}
@@ -176,9 +244,48 @@ export default function InvestmentsPanel({ userId }) {
           <div style={{ marginTop: 6, fontSize: 22, fontWeight: 900 }}>{moneyBRL(summary.totalSell)}</div>
         </div>
         <div style={{ ...styles.card, background: "var(--card2)" }}>
-          <div style={{ ...styles.muted, fontSize: 12 }}>Ultimo saldo do banco</div>
+          <div style={{ ...styles.muted, fontSize: 12 }}>Ultimo saldo da banca</div>
           <div style={{ marginTop: 6, fontSize: 22, fontWeight: 900 }}>{moneyBRL(summary.lastBalance)}</div>
         </div>
+      </div>
+
+      <div style={{ ...styles.card, marginTop: 12, background: "var(--card2)" }}>
+        <div style={{ fontWeight: 800 }}>Adicionar saldo na carteira da banca</div>
+        <form onSubmit={addBalanceEntry} style={{ display: "grid", gap: 10, marginTop: 10 }}>
+          <div className="investFormGrid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
+            <input
+              style={styles.input}
+              placeholder="Saldo atual da banca"
+              value={balanceForm.amount}
+              onChange={(e) => setBalanceForm((p) => ({ ...p, amount: e.target.value }))}
+              inputMode="decimal"
+            />
+            <select
+              style={styles.input}
+              value={balanceForm.entryType}
+              onChange={(e) => setBalanceForm((p) => ({ ...p, entryType: e.target.value }))}
+            >
+              <option value="deposit">Deposito / Aporte</option>
+              <option value="withdraw">Saque</option>
+              <option value="adjustment">Ajuste manual</option>
+            </select>
+            <input
+              style={styles.input}
+              type="datetime-local"
+              value={balanceForm.recordedAt}
+              onChange={(e) => setBalanceForm((p) => ({ ...p, recordedAt: e.target.value }))}
+            />
+          </div>
+          <input
+            style={styles.input}
+            placeholder="Observacoes do ajuste (opcional)"
+            value={balanceForm.note}
+            onChange={(e) => setBalanceForm((p) => ({ ...p, note: e.target.value }))}
+          />
+          <button style={styles.btn} type="submit" disabled={savingBalance}>
+            {savingBalance ? "Salvando..." : "Salvar saldo da banca"}
+          </button>
+        </form>
       </div>
 
       <div style={{ ...styles.card, marginTop: 12, background: "var(--card2)" }}>
@@ -232,8 +339,8 @@ export default function InvestmentsPanel({ userId }) {
             value={form.note}
             onChange={(e) => setForm((p) => ({ ...p, note: e.target.value }))}
           />
-          <button style={styles.btn} type="submit" disabled={saving}>
-            {saving ? "Salvando..." : "Registrar ordem"}
+          <button style={styles.btn} type="submit" disabled={savingOrder}>
+            {savingOrder ? "Salvando..." : "Registrar ordem"}
           </button>
         </form>
       </div>
@@ -274,6 +381,39 @@ export default function InvestmentsPanel({ userId }) {
               <button style={styles.btnGhost} type="button" onClick={() => removeOrder(o.id)}>
                 Remover
               </button>
+            </div>
+          ))
+        )}
+      </div>
+
+      <div style={{ marginTop: 12, border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
+        <div style={{ padding: 12, background: "var(--card2)", borderBottom: "1px solid var(--border)", fontWeight: 800 }}>
+          Ultimos ajustes de saldo
+        </div>
+        {balanceEntries.length === 0 ? (
+          <div style={{ padding: 12, ...styles.muted }}>Nenhum ajuste de saldo registrado.</div>
+        ) : (
+          balanceEntries.slice(0, 20).map((b) => (
+            <div
+              key={b.id}
+              className="investOrderRow"
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr auto",
+                gap: 10,
+                alignItems: "center",
+                padding: 12,
+                borderTop: "1px solid var(--border)",
+              }}
+            >
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 900 }}>
+                  {b.entry_type === "withdraw" ? "Saque" : b.entry_type === "adjustment" ? "Ajuste" : "Deposito"}
+                </div>
+                <div style={{ ...styles.muted, fontSize: 12 }}>{new Date(b.recorded_at).toLocaleString("pt-BR")}</div>
+                {b.note ? <div style={{ ...styles.muted, fontSize: 12 }}>{b.note}</div> : null}
+              </div>
+              <div style={{ fontWeight: 900 }}>{moneyBRL(b.amount)}</div>
             </div>
           ))
         )}
