@@ -38,7 +38,6 @@ export default function InvestmentsPanel({ userId }) {
     side: "buy",
     quantity: "",
     executionPrice: "",
-    bankBalance: "",
     executedAt: toInputDateTimeLocal(new Date()),
     note: "",
   });
@@ -106,16 +105,20 @@ export default function InvestmentsPanel({ userId }) {
     const side = form.side === "sell" ? "sell" : "buy";
     const quantity = parseQuantity(form.quantity);
     const executionPrice = parseMoneyInput(form.executionPrice);
-    const bankBalance = parseMoneyInput(form.bankBalance);
 
     if (!symbol) return alert("Informe o ativo (ex.: BTCUSDT).");
     if (!Number.isFinite(quantity) || quantity <= 0) return alert("Quantidade invalida.");
     if (!Number.isFinite(executionPrice) || executionPrice <= 0) return alert("Preco de execucao invalido.");
-    if (!Number.isFinite(bankBalance)) return alert("Informe o saldo do banco no momento da ordem.");
 
     const orderValue = roundMoney(quantity * executionPrice);
     const executedAt = form.executedAt ? new Date(form.executedAt) : new Date();
     if (Number.isNaN(executedAt.getTime())) return alert("Data/hora invalida.");
+    const latestBalance = balanceEntries.length > 0
+      ? Number(balanceEntries[0].amount || 0)
+      : orders.length > 0
+        ? Number(orders[0].bank_balance || 0)
+        : 0;
+    const bankBalance = roundMoney(side === "buy" ? latestBalance - orderValue : latestBalance + orderValue);
 
     setSavingOrder(true);
     const { error } = await supabase.from("crypto_orders").insert({
@@ -143,7 +146,6 @@ export default function InvestmentsPanel({ userId }) {
       ...p,
       quantity: "",
       executionPrice: "",
-      bankBalance: "",
       note: "",
       executedAt: toInputDateTimeLocal(new Date()),
     }));
@@ -212,6 +214,24 @@ export default function InvestmentsPanel({ userId }) {
     const pnl = roundMoney(totalSell - totalBuy);
     return { count, totalBuy, totalSell, lastBalance, pnl };
   }, [orders, balanceEntries]);
+
+  const orderPreview = useMemo(() => {
+    const quantity = parseQuantity(form.quantity);
+    const executionPrice = parseMoneyInput(form.executionPrice);
+    const orderValue =
+      Number.isFinite(quantity) && Number.isFinite(executionPrice) && quantity > 0 && executionPrice > 0
+        ? roundMoney(quantity * executionPrice)
+        : 0;
+    const latestBalance = balanceEntries.length > 0
+      ? Number(balanceEntries[0].amount || 0)
+      : orders.length > 0
+        ? Number(orders[0].bank_balance || 0)
+        : 0;
+    const projectedBalance = form.side === "sell"
+      ? roundMoney(latestBalance + orderValue)
+      : roundMoney(latestBalance - orderValue);
+    return { latestBalance, orderValue, projectedBalance };
+  }, [form.quantity, form.executionPrice, form.side, balanceEntries, orders]);
 
   const pnlBySymbol = useMemo(() => {
     const map = new Map();
@@ -360,17 +380,13 @@ export default function InvestmentsPanel({ userId }) {
             />
             <input
               style={styles.input}
-              placeholder="Saldo da banca (momento da ordem, USD)"
-              value={form.bankBalance}
-              onChange={(e) => setForm((p) => ({ ...p, bankBalance: e.target.value }))}
-              inputMode="decimal"
-            />
-            <input
-              style={styles.input}
               type="datetime-local"
               value={form.executedAt}
               onChange={(e) => setForm((p) => ({ ...p, executedAt: e.target.value }))}
             />
+          </div>
+          <div style={{ ...styles.muted, fontSize: 13 }}>
+            Saldo atual da banca: <b>{moneyUSD(orderPreview.latestBalance)}</b> | Valor da ordem: <b>{moneyUSD(orderPreview.orderValue)}</b> | Saldo apos execucao: <b>{moneyUSD(orderPreview.projectedBalance)}</b>
           </div>
           <input
             style={styles.input}
