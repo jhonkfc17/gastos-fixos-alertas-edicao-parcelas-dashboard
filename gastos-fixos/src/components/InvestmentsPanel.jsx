@@ -250,6 +250,39 @@ export default function InvestmentsPanel({ userId }) {
     return [...map.values()].sort((a, b) => b.pnl - a.pnl);
   }, [orders]);
 
+  const averagePositionBySymbol = useMemo(() => {
+    const map = new Map();
+    const chronologicalOrders = [...orders].sort((a, b) => new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime());
+
+    for (const o of chronologicalOrders) {
+      const symbol = String(o.symbol || "").toUpperCase() || "SEM_ATIVO";
+      const quantity = Number(o.quantity || 0);
+      const executionPrice = Number(o.execution_price || 0);
+      if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(executionPrice) || executionPrice <= 0) continue;
+
+      if (!map.has(symbol)) map.set(symbol, { symbol, quantity: 0, averagePrice: 0 });
+      const row = map.get(symbol);
+
+      if (o.side === "sell") {
+        if (quantity >= row.quantity) {
+          row.quantity = 0;
+          row.averagePrice = 0;
+        } else {
+          row.quantity = roundMoney(row.quantity - quantity);
+        }
+        continue;
+      }
+
+      const newQuantity = row.quantity + quantity;
+      row.averagePrice = roundMoney(((row.quantity * row.averagePrice) + (quantity * executionPrice)) / newQuantity);
+      row.quantity = roundMoney(newQuantity);
+    }
+
+    return [...map.values()]
+      .filter((row) => row.quantity > 0)
+      .sort((a, b) => a.symbol.localeCompare(b.symbol));
+  }, [orders]);
+
   return (
     <div style={{ ...styles.card, padding: 14 }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
@@ -308,6 +341,23 @@ export default function InvestmentsPanel({ userId }) {
           >
             {summary.pnl >= 0 ? "+" : "-"}{moneyUSD(Math.abs(summary.pnl))}
           </div>
+        </div>
+        <div style={{ ...styles.card, background: "var(--card2)" }}>
+          <div style={{ ...styles.muted, fontSize: 12 }}>Preco medio por ativo (posicao atual)</div>
+          {averagePositionBySymbol.length === 0 ? (
+            <div style={{ marginTop: 6, fontSize: 13, ...styles.muted }}>Sem posicao aberta.</div>
+          ) : (
+            <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
+              {averagePositionBySymbol.map((row) => (
+                <div key={row.symbol} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13 }}>
+                  <span style={{ fontWeight: 800 }}>{row.symbol}</span>
+                  <span style={{ ...styles.muted }}>
+                    Qtd: {row.quantity} | PM: <b style={{ color: "var(--text)" }}>{moneyUSD(row.averagePrice)}</b>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
