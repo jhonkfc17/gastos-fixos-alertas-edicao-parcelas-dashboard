@@ -3,6 +3,10 @@ import { supabase } from "../lib/supabase";
 import { parseMoneyInput, roundMoney, styles } from "./ui";
 
 const PRICE_REFRESH_MS = 15000;
+const COINGECKO_IDS_BY_SYMBOL = {
+  BTCUSDT: "bitcoin",
+  SOLUSDT: "solana",
+};
 
 function moneyUSD(value) {
   const n = Number(value || 0);
@@ -25,6 +29,10 @@ function parseQuantity(value) {
   if (!text) return null;
   const num = Number(text);
   return Number.isFinite(num) ? num : null;
+}
+
+function normalizeSymbol(value) {
+  return String(value || "").trim().toUpperCase().replace("/", "") || "SEM_ATIVO";
 }
 
 function getLatestBankBalance(orders = [], balanceEntries = []) {
@@ -122,7 +130,7 @@ export default function InvestmentsPanel({ userId }) {
     e.preventDefault();
     if (!userId) return;
 
-    const symbol = String(form.symbol || "").trim().toUpperCase().replace("/", "");
+    const symbol = normalizeSymbol(form.symbol);
     const side = form.side === "sell" ? "sell" : "buy";
     const quantity = parseQuantity(form.quantity);
     const executionPrice = parseMoneyInput(form.executionPrice);
@@ -245,7 +253,7 @@ export default function InvestmentsPanel({ userId }) {
   const pnlBySymbol = useMemo(() => {
     const map = new Map();
     for (const o of orders) {
-      const key = String(o.symbol || "").toUpperCase() || "SEM_ATIVO";
+      const key = normalizeSymbol(o.symbol);
       if (!map.has(key)) map.set(key, { symbol: key, buy: 0, sell: 0, pnl: 0 });
       const row = map.get(key);
       const v = Math.abs(Number(o.order_value || 0));
@@ -261,7 +269,7 @@ export default function InvestmentsPanel({ userId }) {
     const chronologicalOrders = [...orders].sort((a, b) => new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime());
 
     for (const o of chronologicalOrders) {
-      const symbol = String(o.symbol || "").toUpperCase() || "SEM_ATIVO";
+      const symbol = normalizeSymbol(o.symbol);
       const quantity = Number(o.quantity || 0);
       const executionPrice = Number(o.execution_price || 0);
       if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(executionPrice) || executionPrice <= 0) continue;
@@ -313,19 +321,26 @@ export default function InvestmentsPanel({ userId }) {
     async function fetchQuotes() {
       setQuotesLoading(true);
       try {
-        const symbols = averagePositionBySymbol.map((row) => `"${row.symbol}"`).join(",");
-        const response = await fetch(`https://api.binance.com/api/v3/ticker/price?symbols=[${symbols}]`);
+        const supportedRows = averagePositionBySymbol.filter((row) => COINGECKO_IDS_BY_SYMBOL[row.symbol]);
+        if (supportedRows.length === 0) {
+          throw new Error("Nenhum ativo atual possui cotacao automatica configurada.");
+        }
+
+        const ids = [...new Set(supportedRows.map((row) => COINGECKO_IDS_BY_SYMBOL[row.symbol]))].join(",");
+        const response = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`);
         if (!response.ok) throw new Error(`Falha ao buscar cotacoes (${response.status}).`);
 
         const data = await response.json();
-        if (!Array.isArray(data)) throw new Error("Resposta invalida da API de cotacoes.");
+        if (!data || typeof data !== "object") throw new Error("Resposta invalida da API de cotacoes.");
 
         if (!active) return;
 
         setCurrentPrices((prev) => {
           const next = { ...prev };
-          for (const item of data) {
-            next[item.symbol] = String(item.price ?? "");
+          for (const row of supportedRows) {
+            const coinId = COINGECKO_IDS_BY_SYMBOL[row.symbol];
+            const price = data?.[coinId]?.usd;
+            if (Number.isFinite(price)) next[row.symbol] = String(price);
           }
           return next;
         });
