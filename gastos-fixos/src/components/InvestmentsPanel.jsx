@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { parseMoneyInput, roundMoney, styles } from "./ui";
 
+const PRICE_REFRESH_MS = 15000;
+
 function moneyUSD(value) {
   const n = Number(value || 0);
   return n.toLocaleString("en-US", { style: "currency", currency: "USD" });
@@ -48,6 +50,9 @@ export default function InvestmentsPanel({ userId }) {
   const [orders, setOrders] = useState([]);
   const [balanceEntries, setBalanceEntries] = useState([]);
   const [currentPrices, setCurrentPrices] = useState({});
+  const [quotesLoading, setQuotesLoading] = useState(false);
+  const [quotesError, setQuotesError] = useState("");
+  const [quotesUpdatedAt, setQuotesUpdatedAt] = useState(null);
 
   const [form, setForm] = useState({
     symbol: "BTC/USDT",
@@ -294,6 +299,57 @@ export default function InvestmentsPanel({ userId }) {
     });
   }, [averagePositionBySymbol]);
 
+  useEffect(() => {
+    if (averagePositionBySymbol.length === 0) {
+      setQuotesLoading(false);
+      setQuotesError("");
+      setQuotesUpdatedAt(null);
+      return;
+    }
+
+    let active = true;
+    let intervalId;
+
+    async function fetchQuotes() {
+      setQuotesLoading(true);
+      try {
+        const symbols = averagePositionBySymbol.map((row) => `"${row.symbol}"`).join(",");
+        const response = await fetch(`https://api.binance.com/api/v3/ticker/price?symbols=[${symbols}]`);
+        if (!response.ok) throw new Error(`Falha ao buscar cotacoes (${response.status}).`);
+
+        const data = await response.json();
+        if (!Array.isArray(data)) throw new Error("Resposta invalida da API de cotacoes.");
+
+        if (!active) return;
+
+        setCurrentPrices((prev) => {
+          const next = { ...prev };
+          for (const item of data) {
+            next[item.symbol] = String(item.price ?? "");
+          }
+          return next;
+        });
+        setQuotesError("");
+        setQuotesUpdatedAt(new Date());
+      } catch (error) {
+        if (!active) return;
+        setQuotesError(String(error?.message || "Nao foi possivel atualizar as cotacoes."));
+      } finally {
+        if (active) setQuotesLoading(false);
+      }
+    }
+
+    fetchQuotes().catch(() => {});
+    intervalId = window.setInterval(() => {
+      fetchQuotes().catch(() => {});
+    }, PRICE_REFRESH_MS);
+
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+    };
+  }, [averagePositionBySymbol]);
+
   const markToMarketBySymbol = useMemo(() => {
     return averagePositionBySymbol.map((row) => {
       const currentPrice = parseMoneyInput(currentPrices[row.symbol]);
@@ -484,7 +540,19 @@ export default function InvestmentsPanel({ userId }) {
       </div>
 
       <div style={{ ...styles.card, marginTop: 12, background: "var(--card2)" }}>
-        <div style={{ fontWeight: 800 }}>Precificacao atual da posicao</div>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <div style={{ fontWeight: 800 }}>Precificacao atual da posicao</div>
+          <div style={{ ...styles.muted, fontSize: 12 }}>
+            {quotesLoading
+              ? "Atualizando cotacoes..."
+              : quotesUpdatedAt
+                ? `Atualizado em ${quotesUpdatedAt.toLocaleTimeString("pt-BR")}`
+                : `Atualizacao automatica a cada ${PRICE_REFRESH_MS / 1000}s`}
+          </div>
+        </div>
+        {quotesError ? (
+          <div style={{ marginTop: 8, fontSize: 12, color: "rgb(244,63,94)" }}>{quotesError}</div>
+        ) : null}
         {markToMarketBySymbol.length === 0 ? (
           <div style={{ marginTop: 10, ...styles.muted }}>Nenhum ativo em posicao para precificar.</div>
         ) : (
@@ -503,13 +571,12 @@ export default function InvestmentsPanel({ userId }) {
                   <div style={{ fontWeight: 900 }}>{row.symbol}</div>
                   <div style={{ ...styles.muted, fontSize: 12 }}>Qtd: {row.quantity}</div>
                 </div>
-                <input
-                  style={styles.input}
-                  placeholder="Preco atual (USD)"
-                  value={currentPrices[row.symbol] ?? ""}
-                  onChange={(e) => setCurrentPrices((prev) => ({ ...prev, [row.symbol]: e.target.value }))}
-                  inputMode="decimal"
-                />
+                <div style={{ ...styles.card, padding: 10, background: "rgba(255,255,255,.03)" }}>
+                  <div style={{ ...styles.muted, fontSize: 12 }}>Preco atual (USD)</div>
+                  <div style={{ marginTop: 4, fontWeight: 900, fontSize: 18 }}>
+                    {row.currentPrice === null ? "--" : moneyUSD(row.currentPrice)}
+                  </div>
+                </div>
                 <div style={{ fontSize: 13 }}>
                   <span style={styles.muted}>Entrada: {moneyUSD(row.averagePrice)} | Custo: {moneyUSD(row.costBasis)}</span>
                   <div
@@ -525,7 +592,7 @@ export default function InvestmentsPanel({ userId }) {
                     }}
                   >
                     {row.currentPrice === null
-                      ? "Informe o preco atual para calcular."
+                      ? "Aguardando cotacao automatica."
                       : `${row.unrealizedPnl >= 0 ? "Lucro" : "Prejuizo"}: ${moneyUSD(Math.abs(row.unrealizedPnl))} | Valor atual: ${moneyUSD(row.currentValue)}`}
                   </div>
                 </div>
