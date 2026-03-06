@@ -47,6 +47,7 @@ export default function InvestmentsPanel({ userId }) {
   const [schemaMissing, setSchemaMissing] = useState(false);
   const [orders, setOrders] = useState([]);
   const [balanceEntries, setBalanceEntries] = useState([]);
+  const [currentPrices, setCurrentPrices] = useState({});
 
   const [form, setForm] = useState({
     symbol: "BTC/USDT",
@@ -283,6 +284,33 @@ export default function InvestmentsPanel({ userId }) {
       .sort((a, b) => a.symbol.localeCompare(b.symbol));
   }, [orders]);
 
+  useEffect(() => {
+    setCurrentPrices((prev) => {
+      const next = {};
+      for (const row of averagePositionBySymbol) {
+        next[row.symbol] = prev[row.symbol] ?? "";
+      }
+      return next;
+    });
+  }, [averagePositionBySymbol]);
+
+  const markToMarketBySymbol = useMemo(() => {
+    return averagePositionBySymbol.map((row) => {
+      const currentPrice = parseMoneyInput(currentPrices[row.symbol]);
+      const hasCurrentPrice = Number.isFinite(currentPrice) && currentPrice > 0;
+      const currentValue = hasCurrentPrice ? roundMoney(row.quantity * currentPrice) : null;
+      const costBasis = roundMoney(row.quantity * row.averagePrice);
+      const unrealizedPnl = hasCurrentPrice ? roundMoney(currentValue - costBasis) : null;
+      return {
+        ...row,
+        costBasis,
+        currentPrice: hasCurrentPrice ? currentPrice : null,
+        currentValue,
+        unrealizedPnl,
+      };
+    });
+  }, [averagePositionBySymbol, currentPrices]);
+
   return (
     <div style={{ ...styles.card, padding: 14 }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
@@ -453,6 +481,58 @@ export default function InvestmentsPanel({ userId }) {
             {savingOrder ? "Salvando..." : "Registrar ordem"}
           </button>
         </form>
+      </div>
+
+      <div style={{ ...styles.card, marginTop: 12, background: "var(--card2)" }}>
+        <div style={{ fontWeight: 800 }}>Precificacao atual da posicao</div>
+        {markToMarketBySymbol.length === 0 ? (
+          <div style={{ marginTop: 10, ...styles.muted }}>Nenhum ativo em posicao para precificar.</div>
+        ) : (
+          <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+            {markToMarketBySymbol.map((row) => (
+              <div
+                key={row.symbol}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                  gap: 10,
+                  alignItems: "center",
+                }}
+              >
+                <div>
+                  <div style={{ fontWeight: 900 }}>{row.symbol}</div>
+                  <div style={{ ...styles.muted, fontSize: 12 }}>Qtd: {row.quantity}</div>
+                </div>
+                <input
+                  style={styles.input}
+                  placeholder="Preco atual (USD)"
+                  value={currentPrices[row.symbol] ?? ""}
+                  onChange={(e) => setCurrentPrices((prev) => ({ ...prev, [row.symbol]: e.target.value }))}
+                  inputMode="decimal"
+                />
+                <div style={{ fontSize: 13 }}>
+                  <span style={styles.muted}>Entrada: {moneyUSD(row.averagePrice)} | Custo: {moneyUSD(row.costBasis)}</span>
+                  <div
+                    style={{
+                      marginTop: 4,
+                      fontWeight: 900,
+                      color:
+                        row.unrealizedPnl === null
+                          ? "var(--text)"
+                          : row.unrealizedPnl >= 0
+                            ? "rgb(16,185,129)"
+                            : "rgb(244,63,94)",
+                    }}
+                  >
+                    {row.currentPrice === null
+                      ? "Informe o preco atual para calcular."
+                      : `${row.unrealizedPnl >= 0 ? "Lucro" : "Prejuizo"}: ${moneyUSD(Math.abs(row.unrealizedPnl))} | Valor atual: ${moneyUSD(row.currentValue)}`}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div style={{ marginTop: 12, border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
