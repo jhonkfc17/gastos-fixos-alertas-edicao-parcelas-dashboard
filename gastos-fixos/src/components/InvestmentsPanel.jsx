@@ -88,6 +88,7 @@ export default function InvestmentsPanel({ userId }) {
   const [quotesError, setQuotesError] = useState("");
   const [quotesUpdatedAt, setQuotesUpdatedAt] = useState(null);
   const [supportsOrderFee, setSupportsOrderFee] = useState(true);
+  const [patrimonyMode, setPatrimonyMode] = useState("estimated");
 
   const [form, setForm] = useState({
     symbol: "BTC/USDT",
@@ -535,6 +536,80 @@ export default function InvestmentsPanel({ userId }) {
       }));
   }, [orders, balanceEntries]);
 
+  const patrimonyTimeline = useMemo(() => {
+    const events = [];
+    for (const o of orders) {
+      const ts = new Date(o.executed_at);
+      if (Number.isNaN(ts.getTime())) continue;
+      events.push({ ts, type: "order", payload: o });
+    }
+    for (const b of balanceEntries) {
+      const ts = new Date(b.recorded_at);
+      if (Number.isNaN(ts.getTime())) continue;
+      events.push({ ts, type: "balance", payload: b });
+    }
+    events.sort((a, b) => a.ts.getTime() - b.ts.getTime());
+
+    const positions = new Map();
+    let bankBalance = 0;
+    const points = [];
+
+    for (const event of events) {
+      if (event.type === "balance") {
+        bankBalance = roundMoney(Number(event.payload.amount || 0));
+      } else {
+        const o = event.payload;
+        const symbol = normalizeSymbol(o.symbol);
+        const quantity = Number(o.quantity || 0);
+        const executionPrice = Number(o.execution_price || 0);
+
+        if (!positions.has(symbol)) positions.set(symbol, { quantity: 0, averagePrice: 0 });
+        const row = positions.get(symbol);
+
+        if (o.side === "sell") {
+          if (quantity >= row.quantity) {
+            row.quantity = 0;
+            row.averagePrice = 0;
+          } else {
+            row.quantity = roundMoney(row.quantity - quantity);
+          }
+        } else if (Number.isFinite(quantity) && quantity > 0 && Number.isFinite(executionPrice) && executionPrice > 0) {
+          const fee = roundMoney(Number(o.fee || 0));
+          const newQty = row.quantity + quantity;
+          const costAdded = roundMoney((quantity * executionPrice) + fee);
+          row.averagePrice = newQty > 0
+            ? roundMoney(((row.quantity * row.averagePrice) + costAdded) / newQty)
+            : 0;
+          row.quantity = roundMoney(newQty);
+        }
+
+        bankBalance = roundMoney(Number(o.bank_balance || bankBalance || 0));
+      }
+
+      let positionsValue = 0;
+      for (const [symbol, row] of positions.entries()) {
+        if (!row || row.quantity <= 0) continue;
+        const quoted = parseMoneyInput(currentPrices[symbol]);
+        const unitPrice = patrimonyMode === "estimated"
+          ? (Number.isFinite(quoted) && quoted > 0 ? quoted : Number(row.averagePrice || 0))
+          : Number(row.averagePrice || 0);
+        if (!Number.isFinite(unitPrice) || unitPrice <= 0) continue;
+        positionsValue += roundMoney(row.quantity * unitPrice);
+      }
+
+      const patrimony = roundMoney(bankBalance + positionsValue);
+      points.push({
+        label: event.ts.toLocaleDateString("pt-BR"),
+        fullLabel: event.ts.toLocaleString("pt-BR"),
+        bankBalance,
+        positionsValue: roundMoney(positionsValue),
+        patrimony,
+      });
+    }
+
+    return points;
+  }, [orders, balanceEntries, currentPrices, patrimonyMode]);
+
   return (
     <div style={{ ...styles.card, padding: 14 }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
@@ -792,6 +867,75 @@ export default function InvestmentsPanel({ userId }) {
                   strokeWidth={2.5}
                   dot={false}
                   activeDot={{ r: 4 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      </div>
+
+      <div style={{ ...styles.card, marginTop: 12, background: "var(--card2)" }}>
+        <div style={{ fontWeight: 800 }}>Evolucao do patrimonio total</div>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center", marginTop: 6 }}>
+          <div style={{ ...styles.muted, fontSize: 12 }}>
+            Patrimonio = saldo da banca + valor das posicoes.
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              style={patrimonyMode === "estimated" ? styles.btn : styles.btnGhost}
+              onClick={() => setPatrimonyMode("estimated")}
+            >
+              Estimado (cotacao atual)
+            </button>
+            <button
+              type="button"
+              style={patrimonyMode === "conservative" ? styles.btn : styles.btnGhost}
+              onClick={() => setPatrimonyMode("conservative")}
+            >
+              Conservador (preco medio)
+            </button>
+          </div>
+        </div>
+        <div style={{ width: "100%", height: 280, marginTop: 10 }}>
+          {patrimonyTimeline.length === 0 ? (
+            <div style={{ ...styles.muted }}>Sem eventos para plotar.</div>
+          ) : (
+            <ResponsiveContainer>
+              <LineChart data={patrimonyTimeline} margin={{ left: 6, right: 12, top: 10, bottom: 4 }}>
+                <CartesianGrid stroke={gridStroke} strokeDasharray="6 10" vertical={false} />
+                <XAxis dataKey="label" tick={axisTick} axisLine={axisLine} tickLine={false} minTickGap={24} />
+                <YAxis
+                  tick={axisTick}
+                  axisLine={axisLine}
+                  tickLine={false}
+                  width={54}
+                  tickFormatter={(v) => moneyUSDShort(v)}
+                />
+                <Tooltip
+                  content={(
+                    <DarkTooltip
+                      formatter={(v) => moneyUSD(v)}
+                      labelFormatter={(label) => label}
+                    />
+                  )}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="patrimony"
+                  name={patrimonyMode === "estimated" ? "Patrimonio estimado" : "Patrimonio conservador"}
+                  stroke="rgb(16,185,129)"
+                  strokeWidth={2.5}
+                  dot={false}
+                  activeDot={{ r: 4 }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="bankBalance"
+                  name="Saldo banca"
+                  stroke="rgb(34,211,238)"
+                  strokeWidth={1.8}
+                  dot={false}
                 />
               </LineChart>
             </ResponsiveContainer>
