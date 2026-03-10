@@ -11,6 +11,13 @@ import {
 import { supabase } from "../lib/supabase";
 import { parseMoneyInput, roundMoney, styles } from "./ui";
 import { DarkTooltip, axisLine, axisTick, gridStroke } from "./chartTheme";
+import {
+  buildInvestmentAnalytics,
+  formatAssetQuantity,
+  normalizeAssetSymbol,
+  roundAssetPrice,
+  roundAssetQuantity,
+} from "./investmentsAnalytics";
 
 const PRICE_REFRESH_MS = 15000;
 const COINGECKO_IDS_BY_SYMBOL = {
@@ -46,10 +53,6 @@ function parseQuantity(value) {
   if (!text) return null;
   const num = Number(text);
   return Number.isFinite(num) ? num : null;
-}
-
-function normalizeSymbol(value) {
-  return String(value || "").trim().toUpperCase().replace("/", "") || "SEM_ATIVO";
 }
 
 function isMissingColumnError(error, tableName, columnName) {
@@ -172,7 +175,7 @@ export default function InvestmentsPanel({ userId }) {
     e.preventDefault();
     if (!userId) return;
 
-    const symbol = normalizeSymbol(form.symbol);
+    const symbol = normalizeAssetSymbol(form.symbol);
     const side = form.side === "sell" ? "sell" : "buy";
     const quantity = parseQuantity(form.quantity);
     const executionPrice = parseMoneyInput(form.executionPrice);
@@ -194,8 +197,8 @@ export default function InvestmentsPanel({ userId }) {
       user_id: userId,
       symbol,
       side,
-      quantity: roundMoney(quantity),
-      execution_price: roundMoney(executionPrice),
+      quantity: roundAssetQuantity(quantity),
+      execution_price: roundAssetPrice(executionPrice),
       fee: roundMoney(fee),
       fee_currency: "USD",
       order_value: orderValue,
@@ -210,8 +213,8 @@ export default function InvestmentsPanel({ userId }) {
         user_id: userId,
         symbol,
         side,
-        quantity: roundMoney(quantity),
-        execution_price: roundMoney(executionPrice),
+        quantity: roundAssetQuantity(quantity),
+        execution_price: roundAssetPrice(executionPrice),
         order_value: orderValue,
         bank_balance: roundMoney(bankBalance),
         executed_at: executedAt.toISOString(),
@@ -318,103 +321,13 @@ export default function InvestmentsPanel({ userId }) {
     return { latestBalance, orderValue, fee, projectedBalance };
   }, [form.quantity, form.executionPrice, form.fee, form.side, balanceEntries, orders]);
 
-  const pnlBySymbol = useMemo(() => {
-    const map = new Map();
-    for (const o of orders) {
-      const key = normalizeSymbol(o.symbol);
-      if (!map.has(key)) map.set(key, { symbol: key, buy: 0, sell: 0, pnl: 0 });
-      const row = map.get(key);
-      const v = Math.abs(Number(o.order_value || 0));
-      if (o.side === "sell") row.sell += v;
-      else row.buy += v;
-      row.pnl = roundMoney(row.sell - row.buy);
-    }
-    return [...map.values()].sort((a, b) => b.pnl - a.pnl);
-  }, [orders]);
-
-  const averagePositionBySymbol = useMemo(() => {
-    const map = new Map();
-    const chronologicalOrders = [...orders].sort((a, b) => new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime());
-
-    for (const o of chronologicalOrders) {
-      const symbol = normalizeSymbol(o.symbol);
-      const quantity = Number(o.quantity || 0);
-      const executionPrice = Number(o.execution_price || 0);
-      if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(executionPrice) || executionPrice <= 0) continue;
-
-      if (!map.has(symbol)) map.set(symbol, { symbol, quantity: 0, averagePrice: 0 });
-      const row = map.get(symbol);
-
-      if (o.side === "sell") {
-        if (quantity >= row.quantity) {
-          row.quantity = 0;
-          row.averagePrice = 0;
-        } else {
-          row.quantity = roundMoney(row.quantity - quantity);
-        }
-        continue;
-      }
-
-      const newQuantity = row.quantity + quantity;
-      row.averagePrice = roundMoney(((row.quantity * row.averagePrice) + (quantity * executionPrice)) / newQuantity);
-      row.quantity = roundMoney(newQuantity);
-    }
-
-    return [...map.values()]
-      .filter((row) => row.quantity > 0)
-      .sort((a, b) => a.symbol.localeCompare(b.symbol));
-  }, [orders]);
-
   const analytics = useMemo(() => {
-    const map = new Map();
-    let realizedPnl = 0;
-    let totalFees = 0;
-    let totalInvestedCost = 0;
-    const chronologicalOrders = [...orders].sort((a, b) => new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime());
-
-    for (const o of chronologicalOrders) {
-      const symbol = normalizeSymbol(o.symbol);
-      const quantity = Number(o.quantity || 0);
-      const executionPrice = Number(o.execution_price || 0);
-      const fee = roundMoney(Number(o.fee || 0));
-      const gross = roundMoney(quantity * executionPrice);
-
-      if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(executionPrice) || executionPrice <= 0) continue;
-
-      totalFees += fee;
-      if (!map.has(symbol)) map.set(symbol, { symbol, quantity: 0, averagePrice: 0 });
-      const row = map.get(symbol);
-
-      if (o.side === "sell") {
-        const qtySoldFromPosition = Math.min(row.quantity, quantity);
-        const costBasisSold = roundMoney(qtySoldFromPosition * row.averagePrice);
-        const proceeds = roundMoney(gross - fee);
-        realizedPnl += roundMoney(proceeds - costBasisSold);
-
-        if (quantity >= row.quantity) {
-          row.quantity = 0;
-          row.averagePrice = 0;
-        } else {
-          row.quantity = roundMoney(row.quantity - quantity);
-        }
-      } else {
-        const buyCostWithFee = roundMoney(gross + fee);
-        const newQuantity = row.quantity + quantity;
-        row.averagePrice = roundMoney(((row.quantity * row.averagePrice) + buyCostWithFee) / newQuantity);
-        row.quantity = roundMoney(newQuantity);
-      }
-    }
-
-    for (const row of map.values()) {
-      if (row.quantity > 0) totalInvestedCost += roundMoney(row.quantity * row.averagePrice);
-    }
-
-    return {
-      realizedPnl: roundMoney(realizedPnl),
-      totalFees: roundMoney(totalFees),
-      totalInvestedCost: roundMoney(totalInvestedCost),
-    };
+    return buildInvestmentAnalytics(orders);
   }, [orders]);
+
+  const pnlBySymbol = useMemo(() => analytics.bySymbol, [analytics]);
+
+  const averagePositionBySymbol = useMemo(() => analytics.openPositions, [analytics]);
 
   useEffect(() => {
     setCurrentPrices((prev) => {
@@ -559,7 +472,7 @@ export default function InvestmentsPanel({ userId }) {
         bankBalance = roundMoney(Number(event.payload.amount || 0));
       } else {
         const o = event.payload;
-        const symbol = normalizeSymbol(o.symbol);
+        const symbol = normalizeAssetSymbol(o.symbol);
         const quantity = Number(o.quantity || 0);
         const executionPrice = Number(o.execution_price || 0);
 
@@ -567,20 +480,21 @@ export default function InvestmentsPanel({ userId }) {
         const row = positions.get(symbol);
 
         if (o.side === "sell") {
-          if (quantity >= row.quantity) {
+          const matchedQuantity = Math.min(row.quantity, quantity);
+          if (matchedQuantity >= row.quantity) {
             row.quantity = 0;
             row.averagePrice = 0;
           } else {
-            row.quantity = roundMoney(row.quantity - quantity);
+            row.quantity = roundAssetQuantity(row.quantity - matchedQuantity);
           }
         } else if (Number.isFinite(quantity) && quantity > 0 && Number.isFinite(executionPrice) && executionPrice > 0) {
           const fee = roundMoney(Number(o.fee || 0));
-          const newQty = row.quantity + quantity;
+          const newQty = roundAssetQuantity(row.quantity + quantity);
           const costAdded = roundMoney((quantity * executionPrice) + fee);
           row.averagePrice = newQty > 0
-            ? roundMoney(((row.quantity * row.averagePrice) + costAdded) / newQty)
+            ? roundAssetPrice(((row.quantity * row.averagePrice) + costAdded) / newQty)
             : 0;
-          row.quantity = roundMoney(newQty);
+          row.quantity = newQty;
         }
 
         bankBalance = roundMoney(Number(o.bank_balance || bankBalance || 0));
@@ -701,9 +615,12 @@ export default function InvestmentsPanel({ userId }) {
           <div style={{ marginTop: 6, fontSize: 22, fontWeight: 900 }}>{moneyUSD(analytics.totalInvestedCost)}</div>
         </div>
         <div style={{ ...styles.card, background: "var(--card2)" }}>
-          <div style={{ ...styles.muted, fontSize: 12 }}>PnL historico (compras-vendas-taxas)</div>
+          <div style={{ ...styles.muted, fontSize: 12 }}>Fluxo liquido das ordens</div>
           <div style={{ marginTop: 6, fontSize: 22, fontWeight: 900, color: summary.pnl >= 0 ? "rgb(16,185,129)" : "rgb(244,63,94)" }}>
             {summary.pnl >= 0 ? "+" : "-"}{moneyUSD(Math.abs(summary.pnl))}
+          </div>
+          <div style={{ ...styles.muted, fontSize: 11, marginTop: 3 }}>
+            Compras - vendas - taxas. Nao representa PnL com posicao aberta.
           </div>
         </div>
         <div style={{ ...styles.card, background: "var(--card2)" }}>
@@ -716,7 +633,7 @@ export default function InvestmentsPanel({ userId }) {
                 <div key={row.symbol} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13 }}>
                   <span style={{ fontWeight: 800 }}>{row.symbol}</span>
                   <span style={{ ...styles.muted }}>
-                    Qtd: {row.quantity} | PM: <b style={{ color: "var(--text)" }}>{moneyUSD(row.averagePrice)}</b>
+                    Qtd: {formatAssetQuantity(row.quantity)} | PM: <b style={{ color: "var(--text)" }}>{moneyUSD(row.averagePrice)}</b>
                   </span>
                 </div>
               ))}
@@ -973,7 +890,7 @@ export default function InvestmentsPanel({ userId }) {
               >
                 <div>
                   <div style={{ fontWeight: 900 }}>{row.symbol}</div>
-                  <div style={{ ...styles.muted, fontSize: 12 }}>Qtd: {row.quantity}</div>
+                  <div style={{ ...styles.muted, fontSize: 12 }}>Qtd: {formatAssetQuantity(row.quantity)}</div>
                 </div>
                 <div style={{ ...styles.card, padding: 10, background: "rgba(255,255,255,.03)" }}>
                   <div style={{ ...styles.muted, fontSize: 12 }}>Preco atual (USD)</div>
@@ -1008,7 +925,7 @@ export default function InvestmentsPanel({ userId }) {
 
       <div style={{ marginTop: 12, border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
         <div style={{ padding: 12, background: "var(--card2)", borderBottom: "1px solid var(--border)", fontWeight: 800 }}>
-          Resultado por ativo
+          Resultado realizado por ativo
         </div>
         {pnlBySymbol.length === 0 ? (
           <div style={{ padding: 12, ...styles.muted }}>Sem dados para calcular lucro/prejuizo.</div>
@@ -1019,18 +936,30 @@ export default function InvestmentsPanel({ userId }) {
               className="investOrderRow"
               style={{
                 display: "grid",
-                gridTemplateColumns: "1fr auto auto auto",
+                gridTemplateColumns: "minmax(220px, 1fr) auto auto auto",
                 gap: 10,
                 alignItems: "center",
                 padding: 12,
                 borderTop: "1px solid var(--border)",
               }}
             >
-              <div style={{ fontWeight: 900 }}>{p.symbol}</div>
-              <div style={{ ...styles.muted, fontSize: 13 }}>Comprado: {moneyUSD(p.buy)}</div>
-              <div style={{ ...styles.muted, fontSize: 13 }}>Vendido: {moneyUSD(p.sell)}</div>
-              <div style={{ fontWeight: 900, color: p.pnl >= 0 ? "rgb(16,185,129)" : "rgb(244,63,94)" }}>
-                {p.pnl >= 0 ? "+" : "-"}{moneyUSD(Math.abs(p.pnl))}
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 900 }}>{p.symbol}</div>
+                <div style={{ ...styles.muted, fontSize: 12, marginTop: 2 }}>
+                  Comprado: {moneyUSD(p.totalBuy)} | Vendido: {moneyUSD(p.totalSell)} | Taxas: {moneyUSD(p.totalFees)}
+                </div>
+                {p.quantity > 0 ? (
+                  <div style={{ ...styles.muted, fontSize: 12 }}>
+                    Posicao aberta: {formatAssetQuantity(p.quantity)} | Custo em aberto: {moneyUSD(p.openCostBasis)}
+                  </div>
+                ) : null}
+              </div>
+              <div style={{ ...styles.muted, fontSize: 13 }}>Fechado: {formatAssetQuantity(p.closedQuantity)}</div>
+              <div style={{ ...styles.muted, fontSize: 13 }}>
+                {p.quantity > 0 ? `Em aberto: ${formatAssetQuantity(p.quantity)}` : "Sem posicao"}
+              </div>
+              <div style={{ fontWeight: 900, color: p.realizedPnl >= 0 ? "rgb(16,185,129)" : "rgb(244,63,94)" }}>
+                {p.realizedPnl >= 0 ? "+" : "-"}{moneyUSD(Math.abs(p.realizedPnl))}
               </div>
             </div>
           ))
@@ -1062,7 +991,7 @@ export default function InvestmentsPanel({ userId }) {
                   {o.symbol} - {o.side === "buy" ? "Compra" : "Venda"}
                 </div>
                 <div style={{ ...styles.muted, fontSize: 12, marginTop: 2 }}>
-                  Qtd: {Number(o.quantity || 0)} | Preco: {moneyUSD(o.execution_price)} | Taxa: {moneyUSD(o.fee || 0)} | Saldo banca: {moneyUSD(o.bank_balance)}
+                  Qtd: {formatAssetQuantity(o.quantity)} | Preco: {moneyUSD(o.execution_price)} | Taxa: {moneyUSD(o.fee || 0)} | Saldo banca: {moneyUSD(o.bank_balance)}
                 </div>
                 <div style={{ ...styles.muted, fontSize: 12 }}>
                   {new Date(o.executed_at).toLocaleString("pt-BR")}
