@@ -625,7 +625,7 @@ export default function InvestmentsPanel({ userId }) {
           </div>
         </div>
         <div style={{ ...styles.card, background: "var(--card2)" }}>
-          <div style={{ ...styles.muted, fontSize: 12 }}>Preco medio por ativo (posicao atual)</div>
+          <div style={{ ...styles.muted, fontSize: 12 }}>Preco medio atual da operacao aberta</div>
           {averagePositionBySymbol.length === 0 ? (
             <div style={{ marginTop: 6, fontSize: 13, ...styles.muted }}>Sem posicao aberta.</div>
           ) : (
@@ -634,12 +634,15 @@ export default function InvestmentsPanel({ userId }) {
                 <div key={row.symbol} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13 }}>
                   <span style={{ fontWeight: 800 }}>{row.symbol}</span>
                   <span style={{ ...styles.muted }}>
-                    Qtd: {formatAssetQuantity(row.quantity)} | PM: <b style={{ color: "var(--text)" }}>{moneyUSD(row.averagePrice)}</b>
+                    Qtd aberta: {formatAssetQuantity(row.quantity)} | PM atual: <b style={{ color: "var(--text)" }}>{moneyUSD(row.averagePrice)}</b>
                   </span>
                 </div>
               ))}
             </div>
           )}
+          <div style={{ ...styles.muted, fontSize: 11, marginTop: 6 }}>
+            Calculado pelo saldo remanescente apos compras e vendas.
+          </div>
         </div>
       </div>
 
@@ -900,7 +903,7 @@ export default function InvestmentsPanel({ userId }) {
                   </div>
                 </div>
                 <div style={{ fontSize: 13 }}>
-                  <span style={styles.muted}>Entrada: {moneyUSD(row.averagePrice)} | Custo: {moneyUSD(row.costBasis)}</span>
+                  <span style={styles.muted}>PM atual: {moneyUSD(row.averagePrice)} | Custo em aberto: {moneyUSD(row.costBasis)}</span>
                   <div
                     style={{
                       marginTop: 4,
@@ -951,7 +954,7 @@ export default function InvestmentsPanel({ userId }) {
                 </div>
                 {p.quantity > 0 ? (
                   <div style={{ ...styles.muted, fontSize: 12 }}>
-                    Posicao aberta: {formatAssetQuantity(p.quantity)} | Custo em aberto: {moneyUSD(p.openCostBasis)}
+                    Posicao aberta: {formatAssetQuantity(p.quantity)} | PM atual: {moneyUSD(p.averagePrice)} | Custo em aberto: {moneyUSD(p.openCostBasis)}
                   </div>
                 ) : null}
               </div>
