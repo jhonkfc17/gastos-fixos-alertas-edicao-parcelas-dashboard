@@ -14,6 +14,7 @@ import { DarkTooltip, axisLine, axisTick, gridStroke } from "./chartTheme";
 import {
   buildInvestmentAnalytics,
   formatAssetQuantity,
+  getEffectiveOrderQuantity,
   normalizeAssetSymbol,
   roundAssetPrice,
   roundAssetQuantity,
@@ -473,7 +474,7 @@ export default function InvestmentsPanel({ userId }) {
       } else {
         const o = event.payload;
         const symbol = normalizeAssetSymbol(o.symbol);
-        const quantity = Number(o.quantity || 0);
+        const quantity = getEffectiveOrderQuantity(o);
         const executionPrice = Number(o.execution_price || 0);
 
         if (!positions.has(symbol)) positions.set(symbol, { quantity: 0, averagePrice: 0 });
@@ -991,7 +992,7 @@ export default function InvestmentsPanel({ userId }) {
                   {o.symbol} - {o.side === "buy" ? "Compra" : "Venda"}
                 </div>
                 <div style={{ ...styles.muted, fontSize: 12, marginTop: 2 }}>
-                  Qtd: {formatAssetQuantity(o.quantity)} | Preco: {moneyUSD(o.execution_price)} | Taxa: {moneyUSD(o.fee || 0)} | Saldo banca: {moneyUSD(o.bank_balance)}
+                  Qtd: {formatAssetQuantity(getEffectiveOrderQuantity(o))} | Preco: {moneyUSD(o.execution_price)} | Taxa: {moneyUSD(o.fee || 0)} | Saldo banca: {moneyUSD(o.bank_balance)}
                 </div>
                 <div style={{ ...styles.muted, fontSize: 12 }}>
                   {new Date(o.executed_at).toLocaleString("pt-BR")}

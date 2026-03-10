@@ -17,6 +17,34 @@ export function roundAssetPrice(value) {
   return roundTo(value, ASSET_DECIMALS);
 }
 
+function countDecimalPlaces(value) {
+  const text = String(value ?? "").trim();
+  if (!text || !text.includes(".")) return 0;
+  return text.split(".")[1].length;
+}
+
+export function getEffectiveOrderQuantity(order) {
+  const storedQuantity = Number(order?.quantity || 0);
+  const executionPrice = Number(order?.execution_price || 0);
+  const orderValue = Number(order?.order_value || 0);
+
+  const hasStoredQuantity = Number.isFinite(storedQuantity) && storedQuantity > 0;
+  const canDeriveQuantity = Number.isFinite(executionPrice) && executionPrice > 0 && Number.isFinite(orderValue) && orderValue > 0;
+
+  if (!hasStoredQuantity && !canDeriveQuantity) return 0;
+  if (!canDeriveQuantity) return roundAssetQuantity(storedQuantity);
+
+  const derivedQuantity = roundAssetQuantity(orderValue / executionPrice);
+  if (!hasStoredQuantity) return derivedQuantity;
+
+  const storedDecimals = countDecimalPlaces(order?.quantity);
+  const storedRoundedToCents = storedDecimals <= 2;
+  const diff = Math.abs(derivedQuantity - storedQuantity);
+
+  if (storedRoundedToCents && diff > 0.00000001) return derivedQuantity;
+  return roundAssetQuantity(storedQuantity);
+}
+
 export function formatAssetQuantity(value) {
   const n = Number(value || 0);
   return n.toLocaleString("en-US", {
@@ -41,7 +69,7 @@ export function buildInvestmentAnalytics(orders = []) {
 
   for (const order of chronologicalOrders) {
     const symbol = normalizeAssetSymbol(order.symbol);
-    const quantity = Number(order.quantity || 0);
+    const quantity = getEffectiveOrderQuantity(order);
     const executionPrice = Number(order.execution_price || 0);
     const fee = roundMoney(Number(order.fee || 0));
     const orderValue = Number(order.order_value);
