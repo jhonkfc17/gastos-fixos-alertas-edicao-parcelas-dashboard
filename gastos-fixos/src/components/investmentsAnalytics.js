@@ -17,12 +17,6 @@ export function roundAssetPrice(value) {
   return roundTo(value, ASSET_DECIMALS);
 }
 
-function countDecimalPlaces(value) {
-  const text = String(value ?? "").trim();
-  if (!text || !text.includes(".")) return 0;
-  return text.split(".")[1].length;
-}
-
 export function getEffectiveOrderQuantity(order) {
   const storedQuantity = Number(order?.quantity || 0);
   const executionPrice = Number(order?.execution_price || 0);
@@ -37,11 +31,10 @@ export function getEffectiveOrderQuantity(order) {
   const derivedQuantity = roundAssetQuantity(orderValue / executionPrice);
   if (!hasStoredQuantity) return derivedQuantity;
 
-  const storedDecimals = countDecimalPlaces(order?.quantity);
-  const storedRoundedToCents = storedDecimals <= 2;
-  const diff = Math.abs(derivedQuantity - storedQuantity);
+  const storedOrderValue = roundMoney(storedQuantity * executionPrice);
+  const valueMismatch = Math.abs(storedOrderValue - roundMoney(orderValue));
 
-  if (storedRoundedToCents && diff > 0.00000001) return derivedQuantity;
+  if (valueMismatch > 0.02) return derivedQuantity;
   return roundAssetQuantity(storedQuantity);
 }
 
