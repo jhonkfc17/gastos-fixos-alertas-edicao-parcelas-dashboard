@@ -131,6 +131,8 @@ create table if not exists public.crypto_orders (
   side text not null check (side in ('buy', 'sell')),
   quantity numeric(18,8) not null check (quantity > 0),
   execution_price numeric(18,8) not null check (execution_price > 0),
+  fee numeric(18,8) not null default 0 check (fee >= 0),
+  fee_currency text not null default 'USD',
   order_value numeric(18,8) not null check (order_value >= 0),
   bank_balance numeric(18,2) not null,
   note text,
@@ -138,6 +140,9 @@ create table if not exists public.crypto_orders (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.crypto_orders add column if not exists fee numeric(18,8) not null default 0;
+alter table public.crypto_orders add column if not exists fee_currency text not null default 'USD';
 
 create index if not exists idx_crypto_orders_user on public.crypto_orders(user_id);
 create index if not exists idx_crypto_orders_user_executed_at on public.crypto_orders(user_id, executed_at desc);

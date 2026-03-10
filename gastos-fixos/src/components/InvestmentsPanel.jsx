@@ -1,6 +1,16 @@
 import React, { useEffect, useMemo, useState } from "react";
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+} from "recharts";
 import { supabase } from "../lib/supabase";
 import { parseMoneyInput, roundMoney, styles } from "./ui";
+import { DarkTooltip, axisLine, axisTick, gridStroke } from "./chartTheme";
 
 const PRICE_REFRESH_MS = 15000;
 const COINGECKO_IDS_BY_SYMBOL = {
@@ -11,6 +21,13 @@ const COINGECKO_IDS_BY_SYMBOL = {
 function moneyUSD(value) {
   const n = Number(value || 0);
   return n.toLocaleString("en-US", { style: "currency", currency: "USD" });
+}
+
+function moneyUSDShort(value) {
+  const n = Number(value || 0);
+  if (Math.abs(n) >= 1000000) return `${(n / 1000000).toFixed(2)}M`;
+  if (Math.abs(n) >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return n.toFixed(0);
 }
 
 function toInputDateTimeLocal(value = new Date()) {
@@ -33,6 +50,15 @@ function parseQuantity(value) {
 
 function normalizeSymbol(value) {
   return String(value || "").trim().toUpperCase().replace("/", "") || "SEM_ATIVO";
+}
+
+function isMissingColumnError(error, tableName, columnName) {
+  const msg = String(error?.message || "").toLowerCase();
+  return (
+    msg.includes(String(tableName).toLowerCase())
+    && msg.includes(String(columnName).toLowerCase())
+    && (msg.includes("does not exist") || msg.includes("schema cache") || msg.includes("could not find"))
+  );
 }
 
 function getLatestBankBalance(orders = [], balanceEntries = []) {
@@ -61,12 +87,14 @@ export default function InvestmentsPanel({ userId }) {
   const [quotesLoading, setQuotesLoading] = useState(false);
   const [quotesError, setQuotesError] = useState("");
   const [quotesUpdatedAt, setQuotesUpdatedAt] = useState(null);
+  const [supportsOrderFee, setSupportsOrderFee] = useState(true);
 
   const [form, setForm] = useState({
     symbol: "BTC/USDT",
     side: "buy",
     quantity: "",
     executionPrice: "",
+    fee: "",
     executedAt: toInputDateTimeLocal(new Date()),
     note: "",
   });
@@ -96,7 +124,7 @@ export default function InvestmentsPanel({ userId }) {
     const [ordersRes, balanceRes] = await Promise.all([
       supabase
         .from("crypto_orders")
-        .select("id, symbol, side, quantity, execution_price, bank_balance, order_value, note, executed_at, created_at")
+        .select("id, symbol, side, quantity, execution_price, fee, fee_currency, bank_balance, order_value, note, executed_at, created_at")
         .eq("user_id", userId)
         .order("executed_at", { ascending: false })
         .limit(300),
@@ -110,8 +138,21 @@ export default function InvestmentsPanel({ userId }) {
 
     setLoading(false);
 
-    if (ordersRes.error || balanceRes.error) {
-      const err = ordersRes.error || balanceRes.error;
+    let finalOrdersRes = ordersRes;
+    if (ordersRes.error && (isMissingColumnError(ordersRes.error, "crypto_orders", "fee") || isMissingColumnError(ordersRes.error, "crypto_orders", "fee_currency"))) {
+      setSupportsOrderFee(false);
+      finalOrdersRes = await supabase
+        .from("crypto_orders")
+        .select("id, symbol, side, quantity, execution_price, bank_balance, order_value, note, executed_at, created_at")
+        .eq("user_id", userId)
+        .order("executed_at", { ascending: false })
+        .limit(300);
+    } else {
+      setSupportsOrderFee(true);
+    }
+
+    if (finalOrdersRes.error || balanceRes.error) {
+      const err = finalOrdersRes.error || balanceRes.error;
       if (isMissingTableError(err)) {
         setSchemaMissing(true);
         setOrders([]);
@@ -122,7 +163,7 @@ export default function InvestmentsPanel({ userId }) {
     }
 
     setSchemaMissing(false);
-    setOrders(ordersRes.data ?? []);
+    setOrders((finalOrdersRes.data ?? []).map((o) => ({ ...o, fee: Number(o.fee || 0), fee_currency: o.fee_currency || "USD" })));
     setBalanceEntries(balanceRes.data ?? []);
   }
 
@@ -134,29 +175,52 @@ export default function InvestmentsPanel({ userId }) {
     const side = form.side === "sell" ? "sell" : "buy";
     const quantity = parseQuantity(form.quantity);
     const executionPrice = parseMoneyInput(form.executionPrice);
+    const fee = parseMoneyInput(form.fee) ?? 0;
 
     if (!symbol) return alert("Informe o ativo (ex.: BTCUSDT).");
     if (!Number.isFinite(quantity) || quantity <= 0) return alert("Quantidade invalida.");
     if (!Number.isFinite(executionPrice) || executionPrice <= 0) return alert("Preco de execucao invalido.");
+    if (!Number.isFinite(fee) || fee < 0) return alert("Taxa invalida.");
 
     const orderValue = roundMoney(quantity * executionPrice);
     const executedAt = form.executedAt ? new Date(form.executedAt) : new Date();
     if (Number.isNaN(executedAt.getTime())) return alert("Data/hora invalida.");
     const latestBalance = getLatestBankBalance(orders, balanceEntries);
-    const bankBalance = roundMoney(side === "buy" ? latestBalance - orderValue : latestBalance + orderValue);
+    const bankBalance = roundMoney(side === "buy" ? latestBalance - orderValue - fee : latestBalance + orderValue - fee);
 
     setSavingOrder(true);
-    const { error } = await supabase.from("crypto_orders").insert({
+    let { error } = await supabase.from("crypto_orders").insert({
       user_id: userId,
       symbol,
       side,
       quantity: roundMoney(quantity),
       execution_price: roundMoney(executionPrice),
+      fee: roundMoney(fee),
+      fee_currency: "USD",
       order_value: orderValue,
       bank_balance: roundMoney(bankBalance),
       executed_at: executedAt.toISOString(),
       note: String(form.note || "").trim() || null,
     });
+
+    if (error && (isMissingColumnError(error, "crypto_orders", "fee") || isMissingColumnError(error, "crypto_orders", "fee_currency"))) {
+      setSupportsOrderFee(false);
+      const fallback = await supabase.from("crypto_orders").insert({
+        user_id: userId,
+        symbol,
+        side,
+        quantity: roundMoney(quantity),
+        execution_price: roundMoney(executionPrice),
+        order_value: orderValue,
+        bank_balance: roundMoney(bankBalance),
+        executed_at: executedAt.toISOString(),
+        note: String(form.note || "").trim() || null,
+      });
+      error = fallback.error || null;
+      if (!error && fee > 0) {
+        alert("Ordem salva sem taxa. Atualize o schema SQL para habilitar coluna de fee.");
+      }
+    }
     setSavingOrder(false);
 
     if (error) {
@@ -171,6 +235,7 @@ export default function InvestmentsPanel({ userId }) {
       ...p,
       quantity: "",
       executionPrice: "",
+      fee: "",
       note: "",
       executedAt: toInputDateTimeLocal(new Date()),
     }));
@@ -232,23 +297,25 @@ export default function InvestmentsPanel({ userId }) {
       .filter((o) => o.side === "sell")
       .reduce((acc, o) => acc + Math.abs(Number(o.order_value || 0)), 0);
     const lastBalance = getLatestBankBalance(orders, balanceEntries);
-    const pnl = roundMoney(totalSell - totalBuy);
-    return { count, totalBuy, totalSell, lastBalance, pnl };
+    const totalFees = roundMoney(orders.reduce((acc, o) => acc + Number(o.fee || 0), 0));
+    const pnl = roundMoney(totalSell - totalBuy - totalFees);
+    return { count, totalBuy, totalSell, totalFees, lastBalance, pnl };
   }, [orders, balanceEntries]);
 
   const orderPreview = useMemo(() => {
     const quantity = parseQuantity(form.quantity);
     const executionPrice = parseMoneyInput(form.executionPrice);
+    const fee = parseMoneyInput(form.fee) ?? 0;
     const orderValue =
       Number.isFinite(quantity) && Number.isFinite(executionPrice) && quantity > 0 && executionPrice > 0
         ? roundMoney(quantity * executionPrice)
         : 0;
     const latestBalance = getLatestBankBalance(orders, balanceEntries);
     const projectedBalance = form.side === "sell"
-      ? roundMoney(latestBalance + orderValue)
-      : roundMoney(latestBalance - orderValue);
-    return { latestBalance, orderValue, projectedBalance };
-  }, [form.quantity, form.executionPrice, form.side, balanceEntries, orders]);
+      ? roundMoney(latestBalance + orderValue - fee)
+      : roundMoney(latestBalance - orderValue - fee);
+    return { latestBalance, orderValue, fee, projectedBalance };
+  }, [form.quantity, form.executionPrice, form.fee, form.side, balanceEntries, orders]);
 
   const pnlBySymbol = useMemo(() => {
     const map = new Map();
@@ -295,6 +362,57 @@ export default function InvestmentsPanel({ userId }) {
     return [...map.values()]
       .filter((row) => row.quantity > 0)
       .sort((a, b) => a.symbol.localeCompare(b.symbol));
+  }, [orders]);
+
+  const analytics = useMemo(() => {
+    const map = new Map();
+    let realizedPnl = 0;
+    let totalFees = 0;
+    let totalInvestedCost = 0;
+    const chronologicalOrders = [...orders].sort((a, b) => new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime());
+
+    for (const o of chronologicalOrders) {
+      const symbol = normalizeSymbol(o.symbol);
+      const quantity = Number(o.quantity || 0);
+      const executionPrice = Number(o.execution_price || 0);
+      const fee = roundMoney(Number(o.fee || 0));
+      const gross = roundMoney(quantity * executionPrice);
+
+      if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(executionPrice) || executionPrice <= 0) continue;
+
+      totalFees += fee;
+      if (!map.has(symbol)) map.set(symbol, { symbol, quantity: 0, averagePrice: 0 });
+      const row = map.get(symbol);
+
+      if (o.side === "sell") {
+        const qtySoldFromPosition = Math.min(row.quantity, quantity);
+        const costBasisSold = roundMoney(qtySoldFromPosition * row.averagePrice);
+        const proceeds = roundMoney(gross - fee);
+        realizedPnl += roundMoney(proceeds - costBasisSold);
+
+        if (quantity >= row.quantity) {
+          row.quantity = 0;
+          row.averagePrice = 0;
+        } else {
+          row.quantity = roundMoney(row.quantity - quantity);
+        }
+      } else {
+        const buyCostWithFee = roundMoney(gross + fee);
+        const newQuantity = row.quantity + quantity;
+        row.averagePrice = roundMoney(((row.quantity * row.averagePrice) + buyCostWithFee) / newQuantity);
+        row.quantity = roundMoney(newQuantity);
+      }
+    }
+
+    for (const row of map.values()) {
+      if (row.quantity > 0) totalInvestedCost += roundMoney(row.quantity * row.averagePrice);
+    }
+
+    return {
+      realizedPnl: roundMoney(realizedPnl),
+      totalFees: roundMoney(totalFees),
+      totalInvestedCost: roundMoney(totalInvestedCost),
+    };
   }, [orders]);
 
   useEffect(() => {
@@ -382,6 +500,41 @@ export default function InvestmentsPanel({ userId }) {
     });
   }, [averagePositionBySymbol, currentPrices]);
 
+  const equitySummary = useMemo(() => {
+    const marketValue = roundMoney(
+      markToMarketBySymbol.reduce((acc, row) => acc + (Number.isFinite(row.currentValue) ? Number(row.currentValue) : 0), 0)
+    );
+    const quotedCostBasis = roundMoney(
+      markToMarketBySymbol.reduce((acc, row) => acc + (Number.isFinite(row.currentPrice) ? Number(row.costBasis || 0) : 0), 0)
+    );
+    const unrealizedPnl = roundMoney(marketValue - quotedCostBasis);
+    const totalPnl = roundMoney(analytics.realizedPnl + unrealizedPnl);
+    const patrimony = roundMoney(summary.lastBalance + marketValue);
+    return { marketValue, unrealizedPnl, totalPnl, patrimony };
+  }, [analytics.realizedPnl, markToMarketBySymbol, summary.lastBalance]);
+
+  const balanceTimeline = useMemo(() => {
+    const events = [];
+    for (const o of orders) {
+      const ts = new Date(o.executed_at);
+      if (Number.isNaN(ts.getTime())) continue;
+      events.push({ ts, bankBalance: Number(o.bank_balance || 0), source: "order" });
+    }
+    for (const b of balanceEntries) {
+      const ts = new Date(b.recorded_at);
+      if (Number.isNaN(ts.getTime())) continue;
+      events.push({ ts, bankBalance: Number(b.amount || 0), source: "balance" });
+    }
+
+    return events
+      .sort((a, b) => a.ts.getTime() - b.ts.getTime())
+      .map((item) => ({
+        ...item,
+        label: item.ts.toLocaleDateString("pt-BR"),
+        fullLabel: item.ts.toLocaleString("pt-BR"),
+      }));
+  }, [orders, balanceEntries]);
+
   return (
     <div style={{ ...styles.card, padding: 14 }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
@@ -426,18 +579,55 @@ export default function InvestmentsPanel({ userId }) {
           style={{
             ...styles.card,
             background: "var(--card2)",
-            borderColor: summary.pnl >= 0 ? "rgba(16,185,129,.55)" : "rgba(244,63,94,.55)",
+            borderColor: equitySummary.totalPnl >= 0 ? "rgba(16,185,129,.55)" : "rgba(244,63,94,.55)",
           }}
         >
-          <div style={{ ...styles.muted, fontSize: 12 }}>Lucro / Prejuizo</div>
+          <div style={{ ...styles.muted, fontSize: 12 }}>Resultado total</div>
           <div
             style={{
               marginTop: 6,
               fontSize: 22,
               fontWeight: 900,
-              color: summary.pnl >= 0 ? "rgb(16,185,129)" : "rgb(244,63,94)",
+              color: equitySummary.totalPnl >= 0 ? "rgb(16,185,129)" : "rgb(244,63,94)",
             }}
           >
+            {equitySummary.totalPnl >= 0 ? "+" : "-"}{moneyUSD(Math.abs(equitySummary.totalPnl))}
+          </div>
+        </div>
+        <div style={{ ...styles.card, background: "var(--card2)" }}>
+          <div style={{ ...styles.muted, fontSize: 12 }}>PnL realizado</div>
+          <div style={{ marginTop: 6, fontSize: 22, fontWeight: 900, color: analytics.realizedPnl >= 0 ? "rgb(16,185,129)" : "rgb(244,63,94)" }}>
+            {analytics.realizedPnl >= 0 ? "+" : "-"}{moneyUSD(Math.abs(analytics.realizedPnl))}
+          </div>
+        </div>
+        <div style={{ ...styles.card, background: "var(--card2)" }}>
+          <div style={{ ...styles.muted, fontSize: 12 }}>PnL nao realizado</div>
+          <div style={{ marginTop: 6, fontSize: 22, fontWeight: 900, color: equitySummary.unrealizedPnl >= 0 ? "rgb(16,185,129)" : "rgb(244,63,94)" }}>
+            {equitySummary.unrealizedPnl >= 0 ? "+" : "-"}{moneyUSD(Math.abs(equitySummary.unrealizedPnl))}
+          </div>
+        </div>
+        <div style={{ ...styles.card, background: "var(--card2)" }}>
+          <div style={{ ...styles.muted, fontSize: 12 }}>Patrimonio total</div>
+          <div style={{ marginTop: 6, fontSize: 22, fontWeight: 900 }}>{moneyUSD(equitySummary.patrimony)}</div>
+          <div style={{ ...styles.muted, fontSize: 11, marginTop: 3 }}>
+            Saldo banca + valor de mercado
+          </div>
+        </div>
+        <div style={{ ...styles.card, background: "var(--card2)" }}>
+          <div style={{ ...styles.muted, fontSize: 12 }}>Taxas pagas</div>
+          <div style={{ marginTop: 6, fontSize: 22, fontWeight: 900 }}>{moneyUSD(analytics.totalFees)}</div>
+        </div>
+        <div style={{ ...styles.card, background: "var(--card2)" }}>
+          <div style={{ ...styles.muted, fontSize: 12 }}>Valor de mercado (posicoes)</div>
+          <div style={{ marginTop: 6, fontSize: 22, fontWeight: 900 }}>{moneyUSD(equitySummary.marketValue)}</div>
+        </div>
+        <div style={{ ...styles.card, background: "var(--card2)" }}>
+          <div style={{ ...styles.muted, fontSize: 12 }}>Custo em aberto</div>
+          <div style={{ marginTop: 6, fontSize: 22, fontWeight: 900 }}>{moneyUSD(analytics.totalInvestedCost)}</div>
+        </div>
+        <div style={{ ...styles.card, background: "var(--card2)" }}>
+          <div style={{ ...styles.muted, fontSize: 12 }}>PnL historico (compras-vendas-taxas)</div>
+          <div style={{ marginTop: 6, fontSize: 22, fontWeight: 900, color: summary.pnl >= 0 ? "rgb(16,185,129)" : "rgb(244,63,94)" }}>
             {summary.pnl >= 0 ? "+" : "-"}{moneyUSD(Math.abs(summary.pnl))}
           </div>
         </div>
@@ -501,6 +691,11 @@ export default function InvestmentsPanel({ userId }) {
 
       <div style={{ ...styles.card, marginTop: 12, background: "var(--card2)" }}>
         <div style={{ fontWeight: 800 }}>Nova ordem</div>
+        {!supportsOrderFee ? (
+          <div style={{ ...styles.muted, marginTop: 8, fontSize: 12 }}>
+            Sua base ainda nao possui colunas de taxa em <code>crypto_orders</code>. Atualize o schema para salvar fees.
+          </div>
+        ) : null}
         <form onSubmit={addOrder} style={{ display: "grid", gap: 10, marginTop: 10 }}>
           <div className="investFormGrid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
             <select
@@ -534,13 +729,20 @@ export default function InvestmentsPanel({ userId }) {
             />
             <input
               style={styles.input}
+              placeholder="Taxa da ordem (USD)"
+              value={form.fee}
+              onChange={(e) => setForm((p) => ({ ...p, fee: e.target.value }))}
+              inputMode="decimal"
+            />
+            <input
+              style={styles.input}
               type="datetime-local"
               value={form.executedAt}
               onChange={(e) => setForm((p) => ({ ...p, executedAt: e.target.value }))}
             />
           </div>
           <div style={{ ...styles.muted, fontSize: 13 }}>
-            Saldo atual da banca: <b>{moneyUSD(orderPreview.latestBalance)}</b> | Valor da ordem: <b>{moneyUSD(orderPreview.orderValue)}</b> | Saldo apos execucao: <b>{moneyUSD(orderPreview.projectedBalance)}</b>
+            Saldo atual da banca: <b>{moneyUSD(orderPreview.latestBalance)}</b> | Valor da ordem: <b>{moneyUSD(orderPreview.orderValue)}</b> | Taxa: <b>{moneyUSD(orderPreview.fee)}</b> | Saldo apos execucao: <b>{moneyUSD(orderPreview.projectedBalance)}</b>
           </div>
           <input
             style={styles.input}
@@ -552,6 +754,49 @@ export default function InvestmentsPanel({ userId }) {
             {savingOrder ? "Salvando..." : "Registrar ordem"}
           </button>
         </form>
+      </div>
+
+      <div style={{ ...styles.card, marginTop: 12, background: "var(--card2)" }}>
+        <div style={{ fontWeight: 800 }}>Evolucao do saldo da banca</div>
+        <div style={{ ...styles.muted, fontSize: 12, marginTop: 4 }}>
+          Serie historica com snapshots de ordens e ajustes de saldo.
+        </div>
+        <div style={{ width: "100%", height: 260, marginTop: 10 }}>
+          {balanceTimeline.length === 0 ? (
+            <div style={{ ...styles.muted }}>Sem eventos para plotar.</div>
+          ) : (
+            <ResponsiveContainer>
+              <LineChart data={balanceTimeline} margin={{ left: 6, right: 12, top: 10, bottom: 4 }}>
+                <CartesianGrid stroke={gridStroke} strokeDasharray="6 10" vertical={false} />
+                <XAxis dataKey="label" tick={axisTick} axisLine={axisLine} tickLine={false} minTickGap={24} />
+                <YAxis
+                  tick={axisTick}
+                  axisLine={axisLine}
+                  tickLine={false}
+                  width={54}
+                  tickFormatter={(v) => moneyUSDShort(v)}
+                />
+                <Tooltip
+                  content={(
+                    <DarkTooltip
+                      labelFormatter={(label) => label}
+                      formatter={(v) => moneyUSD(v)}
+                    />
+                  )}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="bankBalance"
+                  name="Saldo da banca"
+                  stroke="rgb(34,211,238)"
+                  strokeWidth={2.5}
+                  dot={false}
+                  activeDot={{ r: 4 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </div>
       </div>
 
       <div style={{ ...styles.card, marginTop: 12, background: "var(--card2)" }}>
@@ -673,7 +918,7 @@ export default function InvestmentsPanel({ userId }) {
                   {o.symbol} - {o.side === "buy" ? "Compra" : "Venda"}
                 </div>
                 <div style={{ ...styles.muted, fontSize: 12, marginTop: 2 }}>
-                  Qtd: {Number(o.quantity || 0)} | Preco: {moneyUSD(o.execution_price)} | Saldo banca: {moneyUSD(o.bank_balance)}
+                  Qtd: {Number(o.quantity || 0)} | Preco: {moneyUSD(o.execution_price)} | Taxa: {moneyUSD(o.fee || 0)} | Saldo banca: {moneyUSD(o.bank_balance)}
                 </div>
                 <div style={{ ...styles.muted, fontSize: 12 }}>
                   {new Date(o.executed_at).toLocaleString("pt-BR")}
