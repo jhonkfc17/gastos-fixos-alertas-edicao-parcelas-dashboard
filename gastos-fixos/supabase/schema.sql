@@ -13,7 +13,6 @@ create table if not exists public.fixed_expenses (
   payment_method text,
   active boolean not null default true,
 
-  -- Parcelamento (compra parcelada)
   is_installment boolean not null default false,
   installment_total_amount numeric(12,2),
   installment_total int,
@@ -24,7 +23,6 @@ create table if not exists public.fixed_expenses (
   updated_at timestamptz not null default now()
 );
 
--- Compatibilidade (caso a tabela já exista)
 alter table public.fixed_expenses add column if not exists is_installment boolean not null default false;
 alter table public.fixed_expenses add column if not exists installment_total_amount numeric(12,2);
 alter table public.fixed_expenses add column if not exists installment_total int;
@@ -71,7 +69,7 @@ on public.fixed_expenses for delete
 using (auth.uid() = user_id);
 
 -- =========================
--- MONTHLY STATUS (pago por mês)
+-- MONTHLY STATUS (pago por mes)
 -- =========================
 
 create table if not exists public.monthly_expense_status (
@@ -90,7 +88,6 @@ create trigger trg_monthly_expense_status_updated_at
 before update on public.monthly_expense_status
 for each row execute function public.set_updated_at();
 
--- evita duplicar o status do mesmo gasto no mesmo mês
 create unique index if not exists uq_monthly_status
   on public.monthly_expense_status(user_id, expense_id, year, month);
 
@@ -219,4 +216,202 @@ with check (auth.uid() = user_id);
 drop policy if exists "bank_balance_entries_delete_own" on public.bank_balance_entries;
 create policy "bank_balance_entries_delete_own"
 on public.bank_balance_entries for delete
+using (auth.uid() = user_id);
+
+-- =========================
+-- VEHICLES
+-- =========================
+
+create table if not exists public.vehicles (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  name text not null,
+  brand text not null,
+  model text not null,
+  year int not null check (year between 1900 and 2100),
+  plate text,
+  odometer_km int not null default 0 check (odometer_km >= 0),
+  fuel_type text,
+  last_km_update_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_vehicles_user on public.vehicles(user_id);
+create index if not exists idx_vehicles_user_updated on public.vehicles(user_id, updated_at desc);
+
+drop trigger if exists trg_vehicles_updated_at on public.vehicles;
+create trigger trg_vehicles_updated_at
+before update on public.vehicles
+for each row execute function public.set_updated_at();
+
+alter table public.vehicles enable row level security;
+
+drop policy if exists "vehicles_select_own" on public.vehicles;
+create policy "vehicles_select_own"
+on public.vehicles for select
+using (auth.uid() = user_id);
+
+drop policy if exists "vehicles_insert_own" on public.vehicles;
+create policy "vehicles_insert_own"
+on public.vehicles for insert
+with check (auth.uid() = user_id);
+
+drop policy if exists "vehicles_update_own" on public.vehicles;
+create policy "vehicles_update_own"
+on public.vehicles for update
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);
+
+drop policy if exists "vehicles_delete_own" on public.vehicles;
+create policy "vehicles_delete_own"
+on public.vehicles for delete
+using (auth.uid() = user_id);
+
+-- =========================
+-- VEHICLE MAINTENANCE ITEMS
+-- =========================
+
+create table if not exists public.vehicle_maintenance_items (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  vehicle_id uuid not null references public.vehicles(id) on delete cascade,
+  name text not null,
+  category text not null default 'Outros',
+  last_service_km int not null check (last_service_km >= 0),
+  last_service_at timestamptz not null,
+  interval_km int not null check (interval_km > 0),
+  interval_days int check (interval_days > 0),
+  next_service_km int,
+  next_service_at timestamptz,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_vehicle_maintenance_items_user on public.vehicle_maintenance_items(user_id);
+create index if not exists idx_vehicle_maintenance_items_vehicle on public.vehicle_maintenance_items(vehicle_id);
+
+drop trigger if exists trg_vehicle_maintenance_items_updated_at on public.vehicle_maintenance_items;
+create trigger trg_vehicle_maintenance_items_updated_at
+before update on public.vehicle_maintenance_items
+for each row execute function public.set_updated_at();
+
+alter table public.vehicle_maintenance_items enable row level security;
+
+drop policy if exists "vehicle_maintenance_items_select_own" on public.vehicle_maintenance_items;
+create policy "vehicle_maintenance_items_select_own"
+on public.vehicle_maintenance_items for select
+using (auth.uid() = user_id);
+
+drop policy if exists "vehicle_maintenance_items_insert_own" on public.vehicle_maintenance_items;
+create policy "vehicle_maintenance_items_insert_own"
+on public.vehicle_maintenance_items for insert
+with check (auth.uid() = user_id);
+
+drop policy if exists "vehicle_maintenance_items_update_own" on public.vehicle_maintenance_items;
+create policy "vehicle_maintenance_items_update_own"
+on public.vehicle_maintenance_items for update
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);
+
+drop policy if exists "vehicle_maintenance_items_delete_own" on public.vehicle_maintenance_items;
+create policy "vehicle_maintenance_items_delete_own"
+on public.vehicle_maintenance_items for delete
+using (auth.uid() = user_id);
+
+-- =========================
+-- VEHICLE KM UPDATES
+-- =========================
+
+create table if not exists public.vehicle_km_updates (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  vehicle_id uuid not null references public.vehicles(id) on delete cascade,
+  previous_km int check (previous_km >= 0),
+  new_km int not null check (new_km >= 0),
+  note text,
+  recorded_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_vehicle_km_updates_user on public.vehicle_km_updates(user_id);
+create index if not exists idx_vehicle_km_updates_vehicle on public.vehicle_km_updates(vehicle_id, recorded_at desc);
+
+drop trigger if exists trg_vehicle_km_updates_updated_at on public.vehicle_km_updates;
+create trigger trg_vehicle_km_updates_updated_at
+before update on public.vehicle_km_updates
+for each row execute function public.set_updated_at();
+
+alter table public.vehicle_km_updates enable row level security;
+
+drop policy if exists "vehicle_km_updates_select_own" on public.vehicle_km_updates;
+create policy "vehicle_km_updates_select_own"
+on public.vehicle_km_updates for select
+using (auth.uid() = user_id);
+
+drop policy if exists "vehicle_km_updates_insert_own" on public.vehicle_km_updates;
+create policy "vehicle_km_updates_insert_own"
+on public.vehicle_km_updates for insert
+with check (auth.uid() = user_id);
+
+drop policy if exists "vehicle_km_updates_update_own" on public.vehicle_km_updates;
+create policy "vehicle_km_updates_update_own"
+on public.vehicle_km_updates for update
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);
+
+drop policy if exists "vehicle_km_updates_delete_own" on public.vehicle_km_updates;
+create policy "vehicle_km_updates_delete_own"
+on public.vehicle_km_updates for delete
+using (auth.uid() = user_id);
+
+-- =========================
+-- VEHICLE MAINTENANCE LOGS
+-- =========================
+
+create table if not exists public.vehicle_maintenance_logs (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  vehicle_id uuid not null references public.vehicles(id) on delete cascade,
+  maintenance_item_id uuid not null references public.vehicle_maintenance_items(id) on delete cascade,
+  name text not null,
+  service_km int not null check (service_km >= 0),
+  service_at timestamptz not null,
+  note text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_vehicle_maintenance_logs_user on public.vehicle_maintenance_logs(user_id);
+create index if not exists idx_vehicle_maintenance_logs_vehicle on public.vehicle_maintenance_logs(vehicle_id, service_at desc);
+create index if not exists idx_vehicle_maintenance_logs_item on public.vehicle_maintenance_logs(maintenance_item_id, service_at desc);
+
+drop trigger if exists trg_vehicle_maintenance_logs_updated_at on public.vehicle_maintenance_logs;
+create trigger trg_vehicle_maintenance_logs_updated_at
+before update on public.vehicle_maintenance_logs
+for each row execute function public.set_updated_at();
+
+alter table public.vehicle_maintenance_logs enable row level security;
+
+drop policy if exists "vehicle_maintenance_logs_select_own" on public.vehicle_maintenance_logs;
+create policy "vehicle_maintenance_logs_select_own"
+on public.vehicle_maintenance_logs for select
+using (auth.uid() = user_id);
+
+drop policy if exists "vehicle_maintenance_logs_insert_own" on public.vehicle_maintenance_logs;
+create policy "vehicle_maintenance_logs_insert_own"
+on public.vehicle_maintenance_logs for insert
+with check (auth.uid() = user_id);
+
+drop policy if exists "vehicle_maintenance_logs_update_own" on public.vehicle_maintenance_logs;
+create policy "vehicle_maintenance_logs_update_own"
+on public.vehicle_maintenance_logs for update
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);
+
+drop policy if exists "vehicle_maintenance_logs_delete_own" on public.vehicle_maintenance_logs;
+create policy "vehicle_maintenance_logs_delete_own"
+on public.vehicle_maintenance_logs for delete
 using (auth.uid() = user_id);

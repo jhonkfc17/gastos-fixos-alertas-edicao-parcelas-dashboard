@@ -271,6 +271,10 @@ html, body { width: 100%; overflow-x: hidden; }
     padding: 10px !important;
   }
 
+  .vehiclesPanelLayout{
+    grid-template-columns: 1fr !important;
+  }
+
   .expenseRow{
     overflow: hidden;
   }

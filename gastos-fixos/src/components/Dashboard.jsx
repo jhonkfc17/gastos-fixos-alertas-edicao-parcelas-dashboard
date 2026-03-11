@@ -14,7 +14,15 @@ import {
 import { expenseMonthInfo, moneyBRL, nextDueDate, styles } from "./ui";
 import { CHART_COLORS, DarkTooltip, axisLine, axisTick, gridStroke } from "./chartTheme";
 
-export default function Dashboard({ items, paidExpenseIds = [], variableSpentMonth = 0, variableByCategory = [] }) {
+export default function Dashboard({
+  items,
+  paidExpenseIds = [],
+  variableSpentMonth = 0,
+  variableByCategory = [],
+  vehicleAlerts = [],
+  onOpenVehicles,
+  onSnoozeVehicleAlert,
+}) {
   const now = new Date();
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
@@ -54,6 +62,34 @@ export default function Dashboard({ items, paidExpenseIds = [], variableSpentMon
 
   return (
     <div className="dashboardGrid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 14 }}>
+      {vehicleAlerts.length > 0 ? (
+        <div
+          className="mobileCardTight alertToday"
+          style={{ ...styles.card, gridColumn: "1 / -1", borderColor: "rgba(245,158,11,.40)", background: "rgba(245,158,11,.10)" }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+            <div>
+              <div style={{ fontWeight: 900, fontSize: 16 }}>Atualize o KM atual do seu veículo para manter as revisões em dia.</div>
+              <div style={{ ...styles.muted, fontSize: 13, marginTop: 4 }}>
+                {vehicleAlerts.map((vehicle) => `${vehicle.name} (${vehicle.reminderLabel})`).join(" | ")}
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button style={styles.btn} type="button" onClick={() => onOpenVehicles?.()}>
+                Atualizar agora
+              </button>
+              <button
+                style={styles.btnGhost}
+                type="button"
+                onClick={() => vehicleAlerts.forEach((vehicle) => onSnoozeVehicleAlert?.(vehicle.id))}
+              >
+                Lembrar depois
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <div className="mobileCardTight" style={styles.card}>
         <div style={{ fontWeight: 900, fontSize: 16 }}>Resumo do mês</div>
         <div style={{ ...styles.muted, fontSize: 13 }}>Fixos ativos + saídas variáveis do mês</div>

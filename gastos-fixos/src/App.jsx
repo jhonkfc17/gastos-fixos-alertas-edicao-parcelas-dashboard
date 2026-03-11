@@ -9,8 +9,10 @@ import MonthlyControl from "./components/MonthlyControl";
 import WalletPanel from "./components/WalletPanel";
 import PaymentHistory from "./components/PaymentHistory";
 import InvestmentsPanel from "./components/InvestmentsPanel";
+import VehiclesPanel from "./components/VehiclesPanel";
 import { expenseMonthInfo, formatMoneyInput, parseMoneyInput, roundMoney, styles, ymLabel } from "./components/ui";
 import { downloadTextFile, toCSV } from "./lib/csv";
+import { getVehicleReminderLabel, needsKmReminder } from "./components/vehicleMaintenance";
 
 export default function App() {
   const [session, setSession] = useState(null);
@@ -26,6 +28,9 @@ export default function App() {
   const [payDialog, setPayDialog] = useState({ open: false, expenseName: "", amount: "", file: null });
   const payDialogResolver = useRef(null);
   const [activeTab, setActiveTab] = useState("painel");
+  const [vehicleRefresh, setVehicleRefresh] = useState(0);
+  const [vehicleAlerts, setVehicleAlerts] = useState([]);
+  const [snoozedVehicleAlerts, setSnoozedVehicleAlerts] = useState([]);
 
   const [ym, setYm] = useState(() => {
     const d = new Date();
@@ -59,6 +64,12 @@ export default function App() {
     fetchCurrentMonthVariable().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user?.id, walletRefresh]);
+
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    fetchVehicleAlerts().catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user?.id, vehicleRefresh, snoozedVehicleAlerts]);
 
   async function fetchItems() {
     setLoading(true);
@@ -149,6 +160,43 @@ export default function App() {
         .map(([name, value]) => ({ name, value }))
         .sort((a, b) => b.value - a.value)
     );
+  }
+
+  function isMissingTableError(error, tableName) {
+    const msg = String(error?.message || "").toLowerCase();
+    return (
+      msg.includes(String(tableName).toLowerCase())
+      && (msg.includes("does not exist") || msg.includes("could not find") || msg.includes("schema cache"))
+    );
+  }
+
+  async function fetchVehicleAlerts() {
+    const userId = session?.user?.id;
+    if (!userId) return;
+
+    const { data, error } = await supabase
+      .from("vehicles")
+      .select("id, name, brand, model, odometer_km, last_km_update_at")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      if (isMissingTableError(error, "vehicles")) {
+        setVehicleAlerts([]);
+        return;
+      }
+      return;
+    }
+
+    const nextAlerts = (data ?? [])
+      .filter((vehicle) => needsKmReminder(vehicle))
+      .filter((vehicle) => !snoozedVehicleAlerts.includes(vehicle.id))
+      .map((vehicle) => ({
+        ...vehicle,
+        reminderLabel: getVehicleReminderLabel(vehicle),
+      }));
+
+    setVehicleAlerts(nextAlerts);
   }
 
   function handleStatusChange(y, m, rows) {
@@ -508,6 +556,13 @@ export default function App() {
           >
             Investimentos
           </button>
+          <button
+            type="button"
+            style={activeTab === "veiculos" ? styles.btn : styles.btnGhost}
+            onClick={() => setActiveTab("veiculos")}
+          >
+            Meus Veiculos
+          </button>
         </div>
 
         {activeTab === "painel" ? (
@@ -518,6 +573,9 @@ export default function App() {
                 paidExpenseIds={paidExpenseIds}
                 variableSpentMonth={variableSpentMonth}
                 variableByCategory={variableByCategory}
+                vehicleAlerts={vehicleAlerts}
+                onOpenVehicles={() => setActiveTab("veiculos")}
+                onSnoozeVehicleAlert={(vehicleId) => setSnoozedVehicleAlerts((prev) => [...new Set([...prev, vehicleId])])}
               />
             </div>
 
@@ -570,9 +628,19 @@ export default function App() {
               <PaymentHistory userId={session.user.id} defaultYear={ym.year} defaultMonth={ym.month} onChanged={() => setWalletRefresh((v) => v + 1)} />
             </div>
           </>
-        ) : (
+        ) : activeTab === "investimentos" ? (
           <div style={{ marginTop: 14 }}>
             <InvestmentsPanel userId={session.user.id} />
+          </div>
+        ) : (
+          <div style={{ marginTop: 14 }}>
+            <VehiclesPanel
+              userId={session.user.id}
+              onChanged={() => {
+                setVehicleRefresh((v) => v + 1);
+                setSnoozedVehicleAlerts([]);
+              }}
+            />
           </div>
         )}
       </div>
