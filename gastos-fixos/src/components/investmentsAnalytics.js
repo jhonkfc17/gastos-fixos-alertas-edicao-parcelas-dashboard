@@ -150,6 +150,8 @@ export function buildInvestmentAnalytics(orders = []) {
   let realizedPnl = 0;
   let totalFees = 0;
   let totalInvestedCost = 0;
+  let totalBuy = 0;
+  let totalSell = 0;
 
   const chronologicalOrders = [...orders].sort(
     (a, b) => new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime()
@@ -168,11 +170,14 @@ export function buildInvestmentAnalytics(orders = []) {
     }
 
     totalFees = roundMoney(totalFees + quoteFee);
+    totalBuy = order.side === "buy" ? roundQuoteValue(totalBuy + grossOrderValue) : totalBuy;
+    totalSell = order.side === "sell" ? roundQuoteValue(totalSell + grossOrderValue) : totalSell;
     if (!rows.has(symbol)) {
       rows.set(symbol, {
         symbol,
         quantity: 0,
         averagePrice: 0,
+        openCostBasisQuote: 0,
         totalBuy: 0,
         totalSell: 0,
         totalFees: 0,
@@ -185,14 +190,15 @@ export function buildInvestmentAnalytics(orders = []) {
     row.totalFees = roundMoney(row.totalFees + quoteFee);
 
     if (order.side === "sell") {
-      row.totalSell = roundMoney(row.totalSell + grossOrderValue);
+      row.totalSell = roundQuoteValue(row.totalSell + grossOrderValue);
 
       const quantityToClose = netPositionQuantity;
       const matchedQuantity = Math.min(row.quantity, quantityToClose);
       const matchedRatio = quantityToClose > 0 ? matchedQuantity / quantityToClose : 0;
-      const matchedProceeds = roundMoney((grossOrderValue - quoteFee) * matchedRatio);
-      const costBasisSold = roundMoney(matchedQuantity * row.averagePrice);
-      const realizedOnTrade = roundMoney(matchedProceeds - costBasisSold);
+      const matchedProceeds = roundQuoteValue((grossOrderValue - quoteFee) * matchedRatio);
+      const avgPriceBeforeSell = row.quantity > 0 ? row.openCostBasisQuote / row.quantity : 0;
+      const costBasisSold = roundQuoteValue(matchedQuantity * avgPriceBeforeSell);
+      const realizedOnTrade = roundQuoteValue(matchedProceeds - costBasisSold);
 
       row.realizedPnl = roundMoney(row.realizedPnl + realizedOnTrade);
       row.closedQuantity = roundAssetQuantity(row.closedQuantity + matchedQuantity);
@@ -201,26 +207,29 @@ export function buildInvestmentAnalytics(orders = []) {
       if (matchedQuantity >= row.quantity) {
         row.quantity = 0;
         row.averagePrice = 0;
+        row.openCostBasisQuote = 0;
       } else {
         row.quantity = roundAssetQuantity(row.quantity - matchedQuantity);
+        row.openCostBasisQuote = roundQuoteValue(Math.max(0, row.openCostBasisQuote - costBasisSold));
+        row.averagePrice = row.quantity > 0 ? roundAssetPrice(row.openCostBasisQuote / row.quantity) : 0;
       }
 
       continue;
     }
 
-    row.totalBuy = roundMoney(row.totalBuy + grossOrderValue);
+    row.totalBuy = roundQuoteValue(row.totalBuy + grossOrderValue);
     const buyCostWithFee = roundQuoteValue(grossOrderValue + quoteFee);
-    const currentCostBasis = row.quantity * row.averagePrice;
     const newQuantity = roundAssetQuantity(row.quantity + netPositionQuantity);
-    const newCostBasis = currentCostBasis + buyCostWithFee;
+    const newCostBasis = roundQuoteValue(row.openCostBasisQuote + buyCostWithFee);
 
+    row.openCostBasisQuote = newCostBasis;
     row.averagePrice = newQuantity > 0 ? roundAssetPrice(newCostBasis / newQuantity) : 0;
     row.quantity = newQuantity;
   }
 
   const bySymbol = [...rows.values()]
     .map((row) => {
-      const openCostBasis = roundMoney(row.quantity * row.averagePrice);
+      const openCostBasis = roundMoney(row.openCostBasisQuote);
       if (row.quantity > 0) totalInvestedCost = roundMoney(totalInvestedCost + openCostBasis);
       return {
         ...row,
@@ -245,5 +254,7 @@ export function buildInvestmentAnalytics(orders = []) {
     realizedPnl: roundMoney(realizedPnl),
     totalFees: roundMoney(totalFees),
     totalInvestedCost: roundMoney(totalInvestedCost),
+    totalBuy: roundMoney(totalBuy),
+    totalSell: roundMoney(totalSell),
   };
 }

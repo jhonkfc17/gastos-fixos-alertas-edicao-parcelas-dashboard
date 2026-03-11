@@ -26,10 +26,7 @@ import {
 } from "./investmentsAnalytics";
 
 const PRICE_REFRESH_MS = 15000;
-const COINGECKO_IDS_BY_SYMBOL = {
-  BTCUSDT: "bitcoin",
-  SOLUSDT: "solana",
-};
+const BINANCE_PRICE_SYMBOLS = ["BTCUSDT", "SOLUSDT"];
 
 function moneyUSD(value) {
   const n = Number(value || 0);
@@ -77,6 +74,12 @@ function formatFeeLabel(order) {
   }
 
   return `${formatAssetQuantity(fee)} ${feeCurrency}`;
+}
+
+function formatDateTimeLabel(value) {
+  const dt = new Date(value);
+  if (Number.isNaN(dt.getTime())) return "--";
+  return dt.toLocaleString("pt-BR");
 }
 
 function isMissingColumnError(error, tableName, columnName) {
@@ -322,20 +325,6 @@ export default function InvestmentsPanel({ userId }) {
     fetchAll().catch(() => {});
   }
 
-  const summary = useMemo(() => {
-    const count = orders.length;
-    const totalBuy = orders
-      .filter((o) => o.side === "buy")
-      .reduce((acc, o) => acc + Math.abs(Number(o.order_value || 0)), 0);
-    const totalSell = orders
-      .filter((o) => o.side === "sell")
-      .reduce((acc, o) => acc + Math.abs(Number(o.order_value || 0)), 0);
-    const lastBalance = getLatestBankBalance(orders, balanceEntries);
-    const totalFees = roundMoney(orders.reduce((acc, o) => acc + getOrderQuoteFeeAmount(o), 0));
-    const pnl = roundMoney(totalSell - totalBuy - totalFees);
-    return { count, totalBuy, totalSell, totalFees, lastBalance, pnl };
-  }, [orders, balanceEntries]);
-
   const orderPreview = useMemo(() => {
     const { baseAsset, quoteAsset } = splitTradingPairSymbol(form.symbol);
     const quantity = parseQuantity(form.quantity);
@@ -359,6 +348,45 @@ export default function InvestmentsPanel({ userId }) {
 
   const analytics = useMemo(() => {
     return buildInvestmentAnalytics(orders);
+  }, [orders]);
+
+  const summary = useMemo(() => {
+    const count = orders.length;
+    const totalBuy = analytics.totalBuy;
+    const totalSell = analytics.totalSell;
+    const lastBalance = getLatestBankBalance(orders, balanceEntries);
+    const totalFees = analytics.totalFees;
+    const pnl = roundMoney(totalSell - totalBuy - totalFees);
+    return { count, totalBuy, totalSell, totalFees, lastBalance, pnl };
+  }, [analytics.totalBuy, analytics.totalSell, analytics.totalFees, orders, balanceEntries]);
+
+  const historyCoverage = useMemo(() => {
+    if (orders.length === 0) {
+      return {
+        firstOrderAt: null,
+        lastOrderAt: null,
+        bySymbol: [],
+      };
+    }
+
+    const chronological = [...orders].sort(
+      (a, b) => new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime()
+    );
+    const bySymbolMap = new Map();
+
+    for (const order of chronological) {
+      const symbol = normalizeAssetSymbol(order.symbol);
+      if (!bySymbolMap.has(symbol)) {
+        bySymbolMap.set(symbol, { symbol, firstOrderAt: order.executed_at, count: 0 });
+      }
+      bySymbolMap.get(symbol).count += 1;
+    }
+
+    return {
+      firstOrderAt: chronological[0]?.executed_at ?? null,
+      lastOrderAt: chronological[chronological.length - 1]?.executed_at ?? null,
+      bySymbol: [...bySymbolMap.values()].sort((a, b) => a.symbol.localeCompare(b.symbol)),
+    };
   }, [orders]);
 
   const pnlBySymbol = useMemo(() => analytics.bySymbol, [analytics]);
@@ -389,25 +417,31 @@ export default function InvestmentsPanel({ userId }) {
     async function fetchQuotes() {
       setQuotesLoading(true);
       try {
-        const supportedRows = averagePositionBySymbol.filter((row) => COINGECKO_IDS_BY_SYMBOL[row.symbol]);
+        const supportedRows = averagePositionBySymbol.filter((row) => BINANCE_PRICE_SYMBOLS.includes(row.symbol));
         if (supportedRows.length === 0) {
-          throw new Error("Nenhum ativo atual possui cotacao automatica configurada.");
+          throw new Error("Nenhum ativo atual possui cotacao automatica configurada na Binance.");
         }
 
-        const ids = [...new Set(supportedRows.map((row) => COINGECKO_IDS_BY_SYMBOL[row.symbol]))].join(",");
-        const response = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`);
-        if (!response.ok) throw new Error(`Falha ao buscar cotacoes (${response.status}).`);
+        const symbols = [...new Set(supportedRows.map((row) => row.symbol))];
+        const response = await fetch(
+          `https://api.binance.com/api/v3/ticker/price?symbols=${encodeURIComponent(JSON.stringify(symbols))}`
+        );
+        if (!response.ok) throw new Error(`Falha ao buscar cotacoes da Binance (${response.status}).`);
 
         const data = await response.json();
-        if (!data || typeof data !== "object") throw new Error("Resposta invalida da API de cotacoes.");
+        if (!Array.isArray(data)) throw new Error("Resposta invalida da API da Binance.");
+        const bySymbol = new Map(
+          data
+            .filter((item) => item?.symbol && Number.isFinite(Number(item?.price)))
+            .map((item) => [String(item.symbol).toUpperCase(), Number(item.price)])
+        );
 
         if (!active) return;
 
         setCurrentPrices((prev) => {
           const next = { ...prev };
           for (const row of supportedRows) {
-            const coinId = COINGECKO_IDS_BY_SYMBOL[row.symbol];
-            const price = data?.[coinId]?.usd;
+            const price = bySymbol.get(row.symbol);
             if (Number.isFinite(price)) next[row.symbol] = String(price);
           }
           return next;
@@ -513,22 +547,28 @@ export default function InvestmentsPanel({ userId }) {
         const executionPrice = Number(o.execution_price || 0);
         const quoteFee = getOrderQuoteFeeAmount(o);
 
-        if (!positions.has(symbol)) positions.set(symbol, { quantity: 0, averagePrice: 0 });
+        if (!positions.has(symbol)) positions.set(symbol, { quantity: 0, averagePrice: 0, openCostBasisQuote: 0 });
         const row = positions.get(symbol);
 
         if (o.side === "sell") {
           const matchedQuantity = Math.min(row.quantity, quantity);
+          const avgPriceBeforeSell = row.quantity > 0 ? row.openCostBasisQuote / row.quantity : 0;
+          const costBasisSold = roundQuoteValue(matchedQuantity * avgPriceBeforeSell);
           if (matchedQuantity >= row.quantity) {
             row.quantity = 0;
             row.averagePrice = 0;
+            row.openCostBasisQuote = 0;
           } else {
             row.quantity = roundAssetQuantity(row.quantity - matchedQuantity);
+            row.openCostBasisQuote = roundQuoteValue(Math.max(0, row.openCostBasisQuote - costBasisSold));
+            row.averagePrice = row.quantity > 0 ? roundAssetPrice(row.openCostBasisQuote / row.quantity) : 0;
           }
         } else if (Number.isFinite(quantity) && quantity > 0 && Number.isFinite(executionPrice) && executionPrice > 0) {
           const newQty = roundAssetQuantity(row.quantity + quantity);
           const costAdded = roundQuoteValue(Number(o.order_value || (getEffectiveOrderQuantity(o) * executionPrice)) + quoteFee);
+          row.openCostBasisQuote = roundQuoteValue(row.openCostBasisQuote + costAdded);
           row.averagePrice = newQty > 0
-            ? roundAssetPrice(((row.quantity * row.averagePrice) + costAdded) / newQty)
+            ? roundAssetPrice(row.openCostBasisQuote / newQty)
             : 0;
           row.quantity = newQty;
         }
@@ -579,6 +619,22 @@ export default function InvestmentsPanel({ userId }) {
           <div style={{ fontWeight: 800 }}>Schema ausente para investimentos</div>
           <div style={{ ...styles.muted, marginTop: 6, fontSize: 13 }}>
             Execute o SQL atualizado em <code>supabase/schema.sql</code> para criar <code>crypto_orders</code> e <code>bank_balance_entries</code>.
+          </div>
+        </div>
+      ) : null}
+
+      {orders.length > 0 ? (
+        <div style={{ ...styles.card, marginTop: 12, background: "var(--card2)" }}>
+          <div style={{ fontWeight: 800, fontSize: 13 }}>Historico carregado no painel</div>
+          <div style={{ ...styles.muted, marginTop: 6, fontSize: 12 }}>
+            Periodo local: <b style={{ color: "var(--text)" }}>{formatDateTimeLabel(historyCoverage.firstOrderAt)}</b> ate{" "}
+            <b style={{ color: "var(--text)" }}>{formatDateTimeLabel(historyCoverage.lastOrderAt)}</b>
+          </div>
+          <div style={{ ...styles.muted, marginTop: 4, fontSize: 12 }}>
+            {historyCoverage.bySymbol.map((row) => `${row.symbol}: ${row.count} ordem(ns), primeira em ${formatDateTimeLabel(row.firstOrderAt)}`).join(" | ")}
+          </div>
+          <div style={{ ...styles.muted, marginTop: 6, fontSize: 11 }}>
+            Quantidade, PM e PnL do painel dependem exclusivamente desse historico salvo no banco. Se houver ordens na Binance fora desse intervalo, a conciliacao nao vai fechar.
           </div>
         </div>
       ) : null}
@@ -656,7 +712,7 @@ export default function InvestmentsPanel({ userId }) {
             {summary.pnl >= 0 ? "+" : "-"}{moneyUSD(Math.abs(summary.pnl))}
           </div>
           <div style={{ ...styles.muted, fontSize: 11, marginTop: 3 }}>
-            Compras - vendas - taxas. Nao representa PnL com posicao aberta.
+            Vendas - compras - taxas. Mede o caixa liquido das ordens, nao o PnL da carteira aberta.
           </div>
         </div>
         <div style={{ ...styles.card, background: "var(--card2)" }}>
@@ -926,6 +982,9 @@ export default function InvestmentsPanel({ userId }) {
                 ? `Atualizado em ${quotesUpdatedAt.toLocaleTimeString("pt-BR")}`
                 : `Atualizacao automatica a cada ${PRICE_REFRESH_MS / 1000}s`}
           </div>
+        </div>
+        <div style={{ ...styles.muted, marginTop: 4, fontSize: 12 }}>
+          Fonte de preco atual: Binance spot ticker.
         </div>
         {quotesError ? (
           <div style={{ marginTop: 8, fontSize: 12, color: "rgb(244,63,94)" }}>{quotesError}</div>
