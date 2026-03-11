@@ -109,6 +109,7 @@ export default function VehiclesPanel({ userId, onChanged }) {
   const [loading, setLoading] = useState(false);
   const [savingVehicle, setSavingVehicle] = useState(false);
   const [savingItem, setSavingItem] = useState(false);
+  const [savingInlineKm, setSavingInlineKm] = useState(false);
   const [vehicles, setVehicles] = useState([]);
   const [maintenanceItems, setMaintenanceItems] = useState([]);
   const [maintenanceLogs, setMaintenanceLogs] = useState([]);
@@ -117,6 +118,7 @@ export default function VehiclesPanel({ userId, onChanged }) {
   const [vehicleForm, setVehicleForm] = useState(emptyVehicleForm());
   const [itemEditingId, setItemEditingId] = useState(null);
   const [itemForm, setItemForm] = useState(createItemForm());
+  const [inlineKmValue, setInlineKmValue] = useState("");
   const [kmModal, setKmModal] = useState({ open: false, vehicleId: null, odometerKm: "", note: "" });
   const [serviceModal, setServiceModal] = useState({
     open: false,
@@ -178,6 +180,10 @@ export default function VehiclesPanel({ userId, onChanged }) {
       setSelectedVehicleId(vehicles[0].id);
     }
   }, [selectedVehicle, vehicles]);
+
+  useEffect(() => {
+    setInlineKmValue(selectedVehicle?.odometer_km != null ? String(selectedVehicle.odometer_km) : "");
+  }, [selectedVehicle?.id, selectedVehicle?.odometer_km]);
 
   useEffect(() => {
     if (!itemEditingId) {
@@ -432,6 +438,42 @@ export default function VehiclesPanel({ userId, onChanged }) {
     onChanged?.();
   }
 
+  async function saveInlineKmUpdate() {
+    if (!selectedVehicle) return;
+    const nextKm = asInteger(inlineKmValue);
+    if (!Number.isFinite(nextKm) || nextKm < 0) return alert("KM informado invalido.");
+    if (nextKm === Number(selectedVehicle.odometer_km || 0)) return;
+    if (nextKm < Number(selectedVehicle.odometer_km || 0)) {
+      return alert("O novo KM nao pode ser menor que o KM atual salvo.");
+    }
+
+    const recordedAt = new Date().toISOString();
+    setSavingInlineKm(true);
+    const { error: historyError } = await supabase.from("vehicle_km_updates").insert({
+      user_id: userId,
+      vehicle_id: selectedVehicle.id,
+      previous_km: Number(selectedVehicle.odometer_km || 0),
+      new_km: nextKm,
+      note: "Atualizacao rapida de KM",
+      recorded_at: recordedAt,
+    });
+    if (historyError) {
+      setSavingInlineKm(false);
+      return alert(historyError.message);
+    }
+
+    const { error: vehicleError } = await supabase
+      .from("vehicles")
+      .update({ odometer_km: nextKm, last_km_update_at: recordedAt })
+      .eq("id", selectedVehicle.id)
+      .eq("user_id", userId);
+
+    setSavingInlineKm(false);
+    if (vehicleError) return alert(vehicleError.message);
+    await fetchAll();
+    onChanged?.();
+  }
+
   function openRegisterService(item) {
     setServiceModal({
       open: true,
@@ -647,7 +689,28 @@ export default function VehiclesPanel({ userId, onChanged }) {
                 </div>
 
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginTop: 12 }}>
-                  <InfoCard label="KM atual" value={formatKm(selectedVehicle.odometer_km)} />
+                  <div style={{ ...styles.card, background: "rgba(255,255,255,.03)", padding: 10 }}>
+                    <div style={{ ...styles.muted, fontSize: 12 }}>KM atual</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, marginTop: 6, alignItems: "center" }}>
+                      <input
+                        style={styles.input}
+                        value={inlineKmValue}
+                        onChange={(e) => setInlineKmValue(e.target.value)}
+                        placeholder="KM atual"
+                      />
+                      <button
+                        style={styles.btn}
+                        type="button"
+                        onClick={saveInlineKmUpdate}
+                        disabled={savingInlineKm || inlineKmValue === String(selectedVehicle.odometer_km || "")}
+                      >
+                        {savingInlineKm ? "Salvando..." : "Salvar KM"}
+                      </button>
+                    </div>
+                    <div style={{ ...styles.muted, fontSize: 12, marginTop: 6 }}>
+                      Atual: {formatKm(selectedVehicle.odometer_km)}
+                    </div>
+                  </div>
                   <InfoCard label="Combustivel" value={selectedVehicle.fuel_type || "-"} />
                   <InfoCard label="Ultima atualizacao de KM" value={formatDateLabel(selectedVehicle.last_km_update_at)} />
                   <InfoCard label="Itens de manutencao" value={itemsForSelectedVehicle.length} />
