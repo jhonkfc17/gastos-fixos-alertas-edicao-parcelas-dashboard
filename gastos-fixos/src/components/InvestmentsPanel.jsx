@@ -15,9 +15,14 @@ import {
   buildInvestmentAnalytics,
   formatAssetQuantity,
   getEffectiveOrderQuantity,
+  getNetPositionQuantity,
+  getOrderQuoteFeeAmount,
   normalizeAssetSymbol,
   roundAssetPrice,
   roundAssetQuantity,
+  roundQuoteValue,
+  splitTradingPairSymbol,
+  resolveOrderFeeCurrency,
 } from "./investmentsAnalytics";
 
 const PRICE_REFRESH_MS = 15000;
@@ -54,6 +59,24 @@ function parseQuantity(value) {
   if (!text) return null;
   const num = Number(text);
   return Number.isFinite(num) ? num : null;
+}
+
+function getFeeCurrencyOptions(symbol) {
+  const { baseAsset, quoteAsset } = splitTradingPairSymbol(symbol);
+  return [quoteAsset, baseAsset];
+}
+
+function formatFeeLabel(order) {
+  const fee = Number(order?.fee || 0);
+  if (!Number.isFinite(fee) || fee <= 0) return moneyUSD(0);
+
+  const feeCurrency = resolveOrderFeeCurrency(order);
+  const { quoteAsset } = splitTradingPairSymbol(order?.symbol);
+  if (feeCurrency === quoteAsset || feeCurrency === "USD" || feeCurrency === "USDT") {
+    return moneyUSD(fee);
+  }
+
+  return `${formatAssetQuantity(fee)} ${feeCurrency}`;
 }
 
 function isMissingColumnError(error, tableName, columnName) {
@@ -100,6 +123,7 @@ export default function InvestmentsPanel({ userId }) {
     quantity: "",
     executionPrice: "",
     fee: "",
+    feeCurrency: "USDT",
     executedAt: toInputDateTimeLocal(new Date()),
     note: "",
   });
@@ -177,21 +201,25 @@ export default function InvestmentsPanel({ userId }) {
     if (!userId) return;
 
     const symbol = normalizeAssetSymbol(form.symbol);
+    const { baseAsset, quoteAsset } = splitTradingPairSymbol(symbol);
     const side = form.side === "sell" ? "sell" : "buy";
     const quantity = parseQuantity(form.quantity);
     const executionPrice = parseMoneyInput(form.executionPrice);
     const fee = parseMoneyInput(form.fee) ?? 0;
+    const feeCurrency = String(form.feeCurrency || quoteAsset).trim().toUpperCase() || quoteAsset;
 
     if (!symbol) return alert("Informe o ativo (ex.: BTCUSDT).");
     if (!Number.isFinite(quantity) || quantity <= 0) return alert("Quantidade invalida.");
     if (!Number.isFinite(executionPrice) || executionPrice <= 0) return alert("Preco de execucao invalido.");
     if (!Number.isFinite(fee) || fee < 0) return alert("Taxa invalida.");
+    if (![quoteAsset, baseAsset].includes(feeCurrency)) return alert("Moeda da taxa invalida.");
 
-    const orderValue = roundMoney(quantity * executionPrice);
+    const orderValue = roundQuoteValue(quantity * executionPrice);
     const executedAt = form.executedAt ? new Date(form.executedAt) : new Date();
     if (Number.isNaN(executedAt.getTime())) return alert("Data/hora invalida.");
     const latestBalance = getLatestBankBalance(orders, balanceEntries);
-    const bankBalance = roundMoney(side === "buy" ? latestBalance - orderValue - fee : latestBalance + orderValue - fee);
+    const quoteFee = feeCurrency === baseAsset ? 0 : roundMoney(fee);
+    const bankBalance = roundMoney(side === "buy" ? latestBalance - orderValue - quoteFee : latestBalance + orderValue - quoteFee);
 
     setSavingOrder(true);
     let { error } = await supabase.from("crypto_orders").insert({
@@ -200,8 +228,8 @@ export default function InvestmentsPanel({ userId }) {
       side,
       quantity: roundAssetQuantity(quantity),
       execution_price: roundAssetPrice(executionPrice),
-      fee: roundMoney(fee),
-      fee_currency: "USD",
+      fee: roundAssetPrice(fee),
+      fee_currency: feeCurrency,
       order_value: orderValue,
       bank_balance: roundMoney(bankBalance),
       executed_at: executedAt.toISOString(),
@@ -241,6 +269,7 @@ export default function InvestmentsPanel({ userId }) {
       quantity: "",
       executionPrice: "",
       fee: "",
+      feeCurrency: quoteAsset,
       note: "",
       executedAt: toInputDateTimeLocal(new Date()),
     }));
@@ -302,25 +331,31 @@ export default function InvestmentsPanel({ userId }) {
       .filter((o) => o.side === "sell")
       .reduce((acc, o) => acc + Math.abs(Number(o.order_value || 0)), 0);
     const lastBalance = getLatestBankBalance(orders, balanceEntries);
-    const totalFees = roundMoney(orders.reduce((acc, o) => acc + Number(o.fee || 0), 0));
+    const totalFees = roundMoney(orders.reduce((acc, o) => acc + getOrderQuoteFeeAmount(o), 0));
     const pnl = roundMoney(totalSell - totalBuy - totalFees);
     return { count, totalBuy, totalSell, totalFees, lastBalance, pnl };
   }, [orders, balanceEntries]);
 
   const orderPreview = useMemo(() => {
+    const { baseAsset, quoteAsset } = splitTradingPairSymbol(form.symbol);
     const quantity = parseQuantity(form.quantity);
     const executionPrice = parseMoneyInput(form.executionPrice);
     const fee = parseMoneyInput(form.fee) ?? 0;
+    const feeCurrency = String(form.feeCurrency || quoteAsset).trim().toUpperCase() || quoteAsset;
     const orderValue =
       Number.isFinite(quantity) && Number.isFinite(executionPrice) && quantity > 0 && executionPrice > 0
-        ? roundMoney(quantity * executionPrice)
+        ? roundQuoteValue(quantity * executionPrice)
+        : 0;
+    const quoteFee =
+      Number.isFinite(fee) && fee > 0 && feeCurrency !== baseAsset
+        ? roundMoney(fee)
         : 0;
     const latestBalance = getLatestBankBalance(orders, balanceEntries);
     const projectedBalance = form.side === "sell"
-      ? roundMoney(latestBalance + orderValue - fee)
-      : roundMoney(latestBalance - orderValue - fee);
-    return { latestBalance, orderValue, fee, projectedBalance };
-  }, [form.quantity, form.executionPrice, form.fee, form.side, balanceEntries, orders]);
+      ? roundMoney(latestBalance + orderValue - quoteFee)
+      : roundMoney(latestBalance - orderValue - quoteFee);
+    return { latestBalance, orderValue, fee, feeCurrency, projectedBalance };
+  }, [form.symbol, form.quantity, form.executionPrice, form.fee, form.feeCurrency, form.side, balanceEntries, orders]);
 
   const analytics = useMemo(() => {
     return buildInvestmentAnalytics(orders);
@@ -474,8 +509,9 @@ export default function InvestmentsPanel({ userId }) {
       } else {
         const o = event.payload;
         const symbol = normalizeAssetSymbol(o.symbol);
-        const quantity = getEffectiveOrderQuantity(o);
+        const quantity = getNetPositionQuantity(o);
         const executionPrice = Number(o.execution_price || 0);
+        const quoteFee = getOrderQuoteFeeAmount(o);
 
         if (!positions.has(symbol)) positions.set(symbol, { quantity: 0, averagePrice: 0 });
         const row = positions.get(symbol);
@@ -489,9 +525,8 @@ export default function InvestmentsPanel({ userId }) {
             row.quantity = roundAssetQuantity(row.quantity - matchedQuantity);
           }
         } else if (Number.isFinite(quantity) && quantity > 0 && Number.isFinite(executionPrice) && executionPrice > 0) {
-          const fee = roundMoney(Number(o.fee || 0));
           const newQty = roundAssetQuantity(row.quantity + quantity);
-          const costAdded = roundMoney((quantity * executionPrice) + fee);
+          const costAdded = roundQuoteValue(Number(o.order_value || (getEffectiveOrderQuantity(o) * executionPrice)) + quoteFee);
           row.averagePrice = newQty > 0
             ? roundAssetPrice(((row.quantity * row.averagePrice) + costAdded) / newQty)
             : 0;
@@ -641,7 +676,7 @@ export default function InvestmentsPanel({ userId }) {
             </div>
           )}
           <div style={{ ...styles.muted, fontSize: 11, marginTop: 6 }}>
-            Calculado pelo saldo remanescente apos compras e vendas.
+            Calculado pela quantidade remanescente apos compras, vendas e taxas.
           </div>
         </div>
       </div>
@@ -697,7 +732,15 @@ export default function InvestmentsPanel({ userId }) {
             <select
               style={styles.input}
               value={form.symbol}
-              onChange={(e) => setForm((p) => ({ ...p, symbol: e.target.value }))}
+              onChange={(e) => {
+                const nextSymbol = e.target.value;
+                const nextOptions = getFeeCurrencyOptions(nextSymbol);
+                setForm((p) => ({
+                  ...p,
+                  symbol: nextSymbol,
+                  feeCurrency: nextOptions.includes(p.feeCurrency) ? p.feeCurrency : nextOptions[0],
+                }));
+              }}
             >
               <option value="BTC/USDT">BTC/USDT</option>
               <option value="SOL/USDT">SOL/USDT</option>
@@ -725,11 +768,20 @@ export default function InvestmentsPanel({ userId }) {
             />
             <input
               style={styles.input}
-              placeholder="Taxa da ordem (USD)"
+              placeholder="Taxa da ordem"
               value={form.fee}
               onChange={(e) => setForm((p) => ({ ...p, fee: e.target.value }))}
               inputMode="decimal"
             />
+            <select
+              style={styles.input}
+              value={form.feeCurrency}
+              onChange={(e) => setForm((p) => ({ ...p, feeCurrency: e.target.value }))}
+            >
+              {getFeeCurrencyOptions(form.symbol).map((currency) => (
+                <option key={currency} value={currency}>{currency}</option>
+              ))}
+            </select>
             <input
               style={styles.input}
               type="datetime-local"
@@ -738,7 +790,7 @@ export default function InvestmentsPanel({ userId }) {
             />
           </div>
           <div style={{ ...styles.muted, fontSize: 13 }}>
-            Saldo atual da banca: <b>{moneyUSD(orderPreview.latestBalance)}</b> | Valor da ordem: <b>{moneyUSD(orderPreview.orderValue)}</b> | Taxa: <b>{moneyUSD(orderPreview.fee)}</b> | Saldo apos execucao: <b>{moneyUSD(orderPreview.projectedBalance)}</b>
+            Saldo atual da banca: <b>{moneyUSD(orderPreview.latestBalance)}</b> | Valor da ordem: <b>{moneyUSD(orderPreview.orderValue)}</b> | Taxa: <b>{Number(orderPreview.fee || 0) > 0 ? (orderPreview.feeCurrency === "USDT" || orderPreview.feeCurrency === "USD" ? moneyUSD(orderPreview.fee) : `${formatAssetQuantity(orderPreview.fee)} ${orderPreview.feeCurrency}`) : moneyUSD(0)}</b> | Saldo apos execucao: <b>{moneyUSD(orderPreview.projectedBalance)}</b>
           </div>
           <input
             style={styles.input}
@@ -995,7 +1047,9 @@ export default function InvestmentsPanel({ userId }) {
                   {o.symbol} - {o.side === "buy" ? "Compra" : "Venda"}
                 </div>
                 <div style={{ ...styles.muted, fontSize: 12, marginTop: 2 }}>
-                  Qtd: {formatAssetQuantity(getEffectiveOrderQuantity(o))} | Preco: {moneyUSD(o.execution_price)} | Taxa: {moneyUSD(o.fee || 0)} | Saldo banca: {moneyUSD(o.bank_balance)}
+                  Qtd exec.: {formatAssetQuantity(getEffectiveOrderQuantity(o))}
+                  {Math.abs(getNetPositionQuantity(o) - getEffectiveOrderQuantity(o)) > 0.00000001 ? ` | Qtd liquida: ${formatAssetQuantity(getNetPositionQuantity(o))}` : ""}
+                  {" | "}Preco: {moneyUSD(o.execution_price)} | Taxa: {formatFeeLabel(o)} | Saldo banca: {moneyUSD(o.bank_balance)}
                 </div>
                 <div style={{ ...styles.muted, fontSize: 12 }}>
                   {new Date(o.executed_at).toLocaleString("pt-BR")}

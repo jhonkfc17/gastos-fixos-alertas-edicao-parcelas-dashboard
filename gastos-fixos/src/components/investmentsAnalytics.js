@@ -1,6 +1,8 @@
 import { roundMoney } from "./ui.js";
 
 const ASSET_DECIMALS = 8;
+const QUOTE_DECIMALS = 8;
+const KNOWN_QUOTE_ASSETS = ["USDT", "USDC", "BUSD", "USD", "BRL", "EUR"];
 
 function roundTo(value, decimals = ASSET_DECIMALS) {
   const n = Number(value || 0);
@@ -17,25 +19,40 @@ export function roundAssetPrice(value) {
   return roundTo(value, ASSET_DECIMALS);
 }
 
+export function roundQuoteValue(value) {
+  return roundTo(value, QUOTE_DECIMALS);
+}
+
+export function splitTradingPairSymbol(value) {
+  const symbol = normalizeAssetSymbol(value);
+  for (const quoteAsset of KNOWN_QUOTE_ASSETS) {
+    if (symbol.endsWith(quoteAsset) && symbol.length > quoteAsset.length) {
+      return {
+        symbol,
+        baseAsset: symbol.slice(0, -quoteAsset.length),
+        quoteAsset,
+      };
+    }
+  }
+
+  return {
+    symbol,
+    baseAsset: symbol,
+    quoteAsset: "USD",
+  };
+}
+
 export function getEffectiveOrderQuantity(order) {
   const storedQuantity = Number(order?.quantity || 0);
+  const hasStoredQuantity = Number.isFinite(storedQuantity) && storedQuantity > 0;
+  if (hasStoredQuantity) return roundAssetQuantity(storedQuantity);
+
   const executionPrice = Number(order?.execution_price || 0);
   const orderValue = Number(order?.order_value || 0);
-
-  const hasStoredQuantity = Number.isFinite(storedQuantity) && storedQuantity > 0;
   const canDeriveQuantity = Number.isFinite(executionPrice) && executionPrice > 0 && Number.isFinite(orderValue) && orderValue > 0;
 
-  if (!hasStoredQuantity && !canDeriveQuantity) return 0;
-  if (!canDeriveQuantity) return roundAssetQuantity(storedQuantity);
-
-  const derivedQuantity = roundAssetQuantity(orderValue / executionPrice);
-  if (!hasStoredQuantity) return derivedQuantity;
-
-  const storedOrderValue = roundMoney(storedQuantity * executionPrice);
-  const valueMismatch = Math.abs(storedOrderValue - roundMoney(orderValue));
-
-  if (valueMismatch > 0.02) return derivedQuantity;
-  return roundAssetQuantity(storedQuantity);
+  if (!canDeriveQuantity) return 0;
+  return roundAssetQuantity(orderValue / executionPrice);
 }
 
 export function formatAssetQuantity(value) {
@@ -48,6 +65,84 @@ export function formatAssetQuantity(value) {
 
 export function normalizeAssetSymbol(value) {
   return String(value || "").trim().toUpperCase().replace("/", "") || "SEM_ATIVO";
+}
+
+function getNormalizedFeeCurrency(order) {
+  const rawFeeCurrency = String(order?.fee_currency || "").trim().toUpperCase();
+  if (rawFeeCurrency) return rawFeeCurrency;
+  return splitTradingPairSymbol(order?.symbol).quoteAsset;
+}
+
+export function resolveOrderFeeCurrency(order) {
+  const fee = Number(order?.fee || 0);
+  const quantity = getEffectiveOrderQuantity(order);
+  const side = String(order?.side || "").trim().toLowerCase();
+  const { baseAsset, quoteAsset } = splitTradingPairSymbol(order?.symbol);
+  const feeCurrency = getNormalizedFeeCurrency(order);
+
+  if (feeCurrency === "USD" && quoteAsset === "USDT") {
+    const looksLikeLegacyBaseFee =
+      side === "buy"
+      && Number.isFinite(fee)
+      && fee > 0
+      && Number.isFinite(quantity)
+      && quantity > 0
+      && (fee / quantity) <= 0.01;
+
+    if (looksLikeLegacyBaseFee) return baseAsset;
+    return quoteAsset;
+  }
+
+  return feeCurrency;
+}
+
+function isQuoteFeeCurrency(feeCurrency, quoteAsset) {
+  return feeCurrency === quoteAsset || feeCurrency === "USD" || feeCurrency === "USDT";
+}
+
+export function getOrderGrossValue(order) {
+  const storedOrderValue = Number(order?.order_value);
+  if (Number.isFinite(storedOrderValue) && storedOrderValue > 0) {
+    return roundQuoteValue(storedOrderValue);
+  }
+
+  const quantity = getEffectiveOrderQuantity(order);
+  const executionPrice = Number(order?.execution_price || 0);
+  if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(executionPrice) || executionPrice <= 0) {
+    return 0;
+  }
+
+  return roundQuoteValue(quantity * executionPrice);
+}
+
+export function getOrderQuoteFeeAmount(order) {
+  const fee = Number(order?.fee || 0);
+  const executionPrice = Number(order?.execution_price || 0);
+  const feeCurrency = resolveOrderFeeCurrency(order);
+  const { baseAsset, quoteAsset } = splitTradingPairSymbol(order?.symbol);
+
+  if (!Number.isFinite(fee) || fee <= 0) return 0;
+  if (feeCurrency === baseAsset && Number.isFinite(executionPrice) && executionPrice > 0) {
+    return roundQuoteValue(fee * executionPrice);
+  }
+  if (isQuoteFeeCurrency(feeCurrency, quoteAsset)) {
+    return roundQuoteValue(fee);
+  }
+  return roundQuoteValue(fee);
+}
+
+export function getNetPositionQuantity(order) {
+  const quantity = getEffectiveOrderQuantity(order);
+  const fee = Number(order?.fee || 0);
+  const feeCurrency = resolveOrderFeeCurrency(order);
+  const side = String(order?.side || "").trim().toLowerCase();
+  const { baseAsset } = splitTradingPairSymbol(order?.symbol);
+
+  if (!Number.isFinite(quantity) || quantity <= 0) return 0;
+  if (!Number.isFinite(fee) || fee <= 0 || feeCurrency !== baseAsset) return roundAssetQuantity(quantity);
+
+  if (side === "sell") return roundAssetQuantity(quantity + fee);
+  return roundAssetQuantity(Math.max(0, quantity - fee));
 }
 
 export function buildInvestmentAnalytics(orders = []) {
@@ -63,18 +158,16 @@ export function buildInvestmentAnalytics(orders = []) {
   for (const order of chronologicalOrders) {
     const symbol = normalizeAssetSymbol(order.symbol);
     const quantity = getEffectiveOrderQuantity(order);
+    const netPositionQuantity = getNetPositionQuantity(order);
     const executionPrice = Number(order.execution_price || 0);
-    const fee = roundMoney(Number(order.fee || 0));
-    const orderValue = Number(order.order_value);
-    const grossOrderValue = roundMoney(
-      Number.isFinite(orderValue) ? orderValue : quantity * executionPrice
-    );
+    const grossOrderValue = getOrderGrossValue(order);
+    const quoteFee = getOrderQuoteFeeAmount(order);
 
     if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(executionPrice) || executionPrice <= 0) {
       continue;
     }
 
-    totalFees = roundMoney(totalFees + fee);
+    totalFees = roundMoney(totalFees + quoteFee);
     if (!rows.has(symbol)) {
       rows.set(symbol, {
         symbol,
@@ -89,14 +182,15 @@ export function buildInvestmentAnalytics(orders = []) {
     }
 
     const row = rows.get(symbol);
-    row.totalFees = roundMoney(row.totalFees + fee);
+    row.totalFees = roundMoney(row.totalFees + quoteFee);
 
     if (order.side === "sell") {
       row.totalSell = roundMoney(row.totalSell + grossOrderValue);
 
-      const matchedQuantity = Math.min(row.quantity, quantity);
-      const matchedRatio = quantity > 0 ? matchedQuantity / quantity : 0;
-      const matchedProceeds = roundMoney((grossOrderValue - fee) * matchedRatio);
+      const quantityToClose = netPositionQuantity;
+      const matchedQuantity = Math.min(row.quantity, quantityToClose);
+      const matchedRatio = quantityToClose > 0 ? matchedQuantity / quantityToClose : 0;
+      const matchedProceeds = roundMoney((grossOrderValue - quoteFee) * matchedRatio);
       const costBasisSold = roundMoney(matchedQuantity * row.averagePrice);
       const realizedOnTrade = roundMoney(matchedProceeds - costBasisSold);
 
@@ -115,9 +209,9 @@ export function buildInvestmentAnalytics(orders = []) {
     }
 
     row.totalBuy = roundMoney(row.totalBuy + grossOrderValue);
-    const buyCostWithFee = roundMoney(grossOrderValue + fee);
+    const buyCostWithFee = roundQuoteValue(grossOrderValue + quoteFee);
     const currentCostBasis = row.quantity * row.averagePrice;
-    const newQuantity = roundAssetQuantity(row.quantity + quantity);
+    const newQuantity = roundAssetQuantity(row.quantity + netPositionQuantity);
     const newCostBasis = currentCostBasis + buyCostWithFee;
 
     row.averagePrice = newQuantity > 0 ? roundAssetPrice(newCostBasis / newQuantity) : 0;
