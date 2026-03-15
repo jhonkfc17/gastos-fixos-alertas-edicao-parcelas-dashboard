@@ -106,6 +106,41 @@ function getLatestBankBalance(orders = [], balanceEntries = []) {
     : Number(latestBalanceEntry?.amount || 0);
 }
 
+function ymKeyFromDate(value = new Date()) {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  return `${y}-${m}`;
+}
+
+function monthLabelFromKey(key) {
+  const [year, month] = String(key || "").split("-").map(Number);
+  if (!Number.isFinite(year) || !Number.isFinite(month)) return "--";
+  return new Date(year, month - 1, 1).toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+}
+
+function startOfMonthFromKey(key) {
+  const [year, month] = String(key || "").split("-").map(Number);
+  if (!Number.isFinite(year) || !Number.isFinite(month)) return null;
+  return new Date(year, month - 1, 1, 0, 0, 0, 0);
+}
+
+function endOfMonthFromKey(key) {
+  const [year, month] = String(key || "").split("-").map(Number);
+  if (!Number.isFinite(year) || !Number.isFinite(month)) return null;
+  return new Date(year, month, 0, 23, 59, 59, 999);
+}
+
+function isCurrentMonthKey(key) {
+  return key === ymKeyFromDate(new Date());
+}
+
+function clampProgress(value) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(1, value));
+}
+
 export default function InvestmentsPanel({ userId }) {
   const [loading, setLoading] = useState(false);
   const [savingOrder, setSavingOrder] = useState(false);
@@ -119,6 +154,8 @@ export default function InvestmentsPanel({ userId }) {
   const [quotesUpdatedAt, setQuotesUpdatedAt] = useState(null);
   const [supportsOrderFee, setSupportsOrderFee] = useState(true);
   const [patrimonyMode, setPatrimonyMode] = useState("estimated");
+  const [goalBaseType, setGoalBaseType] = useState("bankBalance");
+  const [selectedGoalMonth, setSelectedGoalMonth] = useState(() => ymKeyFromDate(new Date()));
 
   const [form, setForm] = useState({
     symbol: "BTC/USDT",
@@ -514,6 +551,8 @@ export default function InvestmentsPanel({ userId }) {
       .sort((a, b) => a.ts.getTime() - b.ts.getTime())
       .map((item) => ({
         ...item,
+        iso: item.ts.toISOString(),
+        tsMs: item.ts.getTime(),
         label: item.ts.toLocaleDateString("pt-BR"),
         fullLabel: item.ts.toLocaleString("pt-BR"),
       }));
@@ -589,6 +628,8 @@ export default function InvestmentsPanel({ userId }) {
 
       const patrimony = roundMoney(bankBalance + positionsValue);
       points.push({
+        iso: event.ts.toISOString(),
+        tsMs: event.ts.getTime(),
         label: event.ts.toLocaleDateString("pt-BR"),
         fullLabel: event.ts.toLocaleString("pt-BR"),
         bankBalance,
@@ -599,6 +640,91 @@ export default function InvestmentsPanel({ userId }) {
 
     return points;
   }, [orders, balanceEntries, currentPrices, patrimonyMode]);
+
+  const goalSeries = useMemo(() => {
+    const source = goalBaseType === "patrimony" ? patrimonyTimeline : balanceTimeline;
+    return source
+      .map((row) => ({
+        ts: new Date(row.iso || row.fullLabel),
+        value: Number(goalBaseType === "patrimony" ? row.patrimony : row.bankBalance || 0),
+      }))
+      .filter((row) => !Number.isNaN(row.ts.getTime()) && Number.isFinite(row.value))
+      .sort((a, b) => a.ts.getTime() - b.ts.getTime());
+  }, [goalBaseType, patrimonyTimeline, balanceTimeline]);
+
+  const goalMonthOptions = useMemo(() => {
+    const keys = new Set(goalSeries.map((row) => ymKeyFromDate(row.ts)));
+    const currentKey = ymKeyFromDate(new Date());
+    if (currentKey) keys.add(currentKey);
+    return [...keys]
+      .filter(Boolean)
+      .sort((a, b) => b.localeCompare(a))
+      .map((key) => ({ key, label: monthLabelFromKey(key) }));
+  }, [goalSeries]);
+
+  useEffect(() => {
+    if (goalMonthOptions.length === 0) return;
+    if (!goalMonthOptions.some((option) => option.key === selectedGoalMonth)) {
+      setSelectedGoalMonth(goalMonthOptions[0].key);
+    }
+  }, [goalMonthOptions, selectedGoalMonth]);
+
+  const monthlyGoal = useMemo(() => {
+    const currentBaseValue = roundMoney(goalBaseType === "patrimony" ? equitySummary.patrimony : summary.lastBalance);
+    const currentTargetAmount = roundMoney(currentBaseValue * 0.1);
+    const targetValue = roundMoney(currentBaseValue + currentTargetAmount);
+    const monthKey = selectedGoalMonth || ymKeyFromDate(new Date());
+    const start = startOfMonthFromKey(monthKey);
+    const end = endOfMonthFromKey(monthKey);
+    const currentMonth = isCurrentMonthKey(monthKey);
+
+    const beforeStart = start ? goalSeries.filter((row) => row.ts < start) : [];
+    const inMonth = start && end ? goalSeries.filter((row) => row.ts >= start && row.ts <= end) : goalSeries;
+
+    const openingPoint = beforeStart[beforeStart.length - 1] || inMonth[0] || null;
+    const closingPoint = inMonth[inMonth.length - 1] || openingPoint;
+    const openingValue = Number(openingPoint?.value || 0);
+    const currentValue = Number(closingPoint?.value || openingValue || 0);
+    const monthTargetAmount = openingValue > 0 ? roundMoney(openingValue * 0.1) : 0;
+    const achievedAmount = roundMoney(currentValue - openingValue);
+    const remainingAmount = roundMoney(monthTargetAmount - achievedAmount);
+    const progressPct = monthTargetAmount > 0 ? achievedAmount / monthTargetAmount : 0;
+    const growthPct = openingValue > 0 ? achievedAmount / openingValue : 0;
+
+    const totalDays = end ? end.getDate() : 0;
+    const elapsedDays = totalDays === 0
+      ? 0
+      : currentMonth
+        ? Math.max(1, Math.min(totalDays, new Date().getDate()))
+        : totalDays;
+    const remainingDays = totalDays === 0 ? 0 : Math.max(0, totalDays - elapsedDays);
+    const dailyNeeded = remainingAmount > 0
+      ? roundMoney(remainingAmount / Math.max(1, remainingDays || 1))
+      : 0;
+
+    return {
+      baseLabel: goalBaseType === "patrimony" ? "Patrimonio total" : "Saldo da banca",
+      currentBaseValue,
+      currentTargetAmount,
+      targetValue,
+      monthKey,
+      monthLabel: monthLabelFromKey(monthKey),
+      trackingReady: Boolean(openingPoint),
+      openingValue,
+      currentValue,
+      monthTargetAmount,
+      achievedAmount,
+      remainingAmount,
+      progressPct,
+      progressPctClamped: clampProgress(progressPct),
+      growthPct,
+      totalDays,
+      elapsedDays,
+      remainingDays,
+      dailyNeeded,
+      currentMonth,
+    };
+  }, [goalBaseType, goalSeries, selectedGoalMonth, equitySummary.patrimony, summary.lastBalance]);
 
   return (
     <div style={{ ...styles.card, padding: 14 }}>
@@ -733,6 +859,165 @@ export default function InvestmentsPanel({ userId }) {
           )}
           <div style={{ ...styles.muted, fontSize: 11, marginTop: 6 }}>
             Calculado pela quantidade remanescente apos compras, vendas e taxas.
+          </div>
+        </div>
+      </div>
+
+      <div style={{ ...styles.card, marginTop: 12, background: "var(--card2)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <div>
+            <div style={{ fontWeight: 800 }}>Meta mensal de 10%</div>
+            <div style={{ ...styles.muted, marginTop: 4, fontSize: 12 }}>
+              Calcula 10% sobre o saldo atual e acompanha o mes selecionado com base no historico salvo.
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              style={goalBaseType === "bankBalance" ? styles.btn : styles.btnGhost}
+              onClick={() => setGoalBaseType("bankBalance")}
+            >
+              Saldo da banca
+            </button>
+            <button
+              type="button"
+              style={goalBaseType === "patrimony" ? styles.btn : styles.btnGhost}
+              onClick={() => setGoalBaseType("patrimony")}
+            >
+              Patrimonio total
+            </button>
+          </div>
+        </div>
+
+        <div style={{ ...styles.gridAuto, marginTop: 12 }}>
+          <div style={{ ...styles.card, background: "rgba(255,255,255,.03)" }}>
+            <div style={{ ...styles.muted, fontSize: 12 }}>Base atual considerada</div>
+            <div style={{ marginTop: 6, fontSize: 22, fontWeight: 900 }}>{moneyUSD(monthlyGoal.currentBaseValue)}</div>
+            <div style={{ ...styles.muted, fontSize: 11, marginTop: 4 }}>{monthlyGoal.baseLabel}</div>
+          </div>
+          <div style={{ ...styles.card, background: "rgba(255,255,255,.03)" }}>
+            <div style={{ ...styles.muted, fontSize: 12 }}>Meta de 10% sobre a base atual</div>
+            <div style={{ marginTop: 6, fontSize: 22, fontWeight: 900 }}>{moneyUSD(monthlyGoal.currentTargetAmount)}</div>
+            <div style={{ ...styles.muted, fontSize: 11, marginTop: 4 }}>Objetivo do mes na base atual</div>
+          </div>
+          <div style={{ ...styles.card, background: "rgba(255,255,255,.03)" }}>
+            <div style={{ ...styles.muted, fontSize: 12 }}>Saldo alvo</div>
+            <div style={{ marginTop: 6, fontSize: 22, fontWeight: 900 }}>{moneyUSD(monthlyGoal.targetValue)}</div>
+            <div style={{ ...styles.muted, fontSize: 11, marginTop: 4 }}>Base atual + 10%</div>
+          </div>
+          <div
+            style={{
+              ...styles.card,
+              background: "rgba(255,255,255,.03)",
+              borderColor: monthlyGoal.achievedAmount >= 0 ? "rgba(16,185,129,.35)" : "rgba(244,63,94,.35)",
+            }}
+          >
+            <div style={{ ...styles.muted, fontSize: 12 }}>Resultado no mes selecionado</div>
+            <div
+              style={{
+                marginTop: 6,
+                fontSize: 22,
+                fontWeight: 900,
+                color: monthlyGoal.achievedAmount >= 0 ? "rgb(16,185,129)" : "rgb(244,63,94)",
+              }}
+            >
+              {monthlyGoal.achievedAmount >= 0 ? "+" : "-"}{moneyUSD(Math.abs(monthlyGoal.achievedAmount))}
+            </div>
+            <div style={{ ...styles.muted, fontSize: 11, marginTop: 4 }}>{monthlyGoal.monthLabel}</div>
+          </div>
+          <div style={{ ...styles.card, background: "rgba(255,255,255,.03)" }}>
+            <div style={{ ...styles.muted, fontSize: 12 }}>Rentabilidade do mes</div>
+            <div style={{ marginTop: 6, fontSize: 22, fontWeight: 900 }}>
+              {(monthlyGoal.growthPct * 100).toFixed(2)}%
+            </div>
+            <div style={{ ...styles.muted, fontSize: 11, marginTop: 4 }}>
+              Meta: 10,00%
+            </div>
+          </div>
+          <div
+            style={{
+              ...styles.card,
+              background: monthlyGoal.remainingAmount <= 0 ? "rgba(16,185,129,.10)" : "rgba(255,255,255,.03)",
+              borderColor: monthlyGoal.remainingAmount <= 0 ? "rgba(16,185,129,.35)" : "var(--border)",
+            }}
+          >
+            <div style={{ ...styles.muted, fontSize: 12 }}>
+              {monthlyGoal.remainingAmount <= 0 ? "Excedente acima da meta" : "Falta para bater a meta"}
+            </div>
+            <div style={{ marginTop: 6, fontSize: 22, fontWeight: 900, color: monthlyGoal.remainingAmount <= 0 ? "rgb(16,185,129)" : "var(--text)" }}>
+              {moneyUSD(Math.abs(monthlyGoal.remainingAmount))}
+            </div>
+            <div style={{ ...styles.muted, fontSize: 11, marginTop: 4 }}>
+              {monthlyGoal.remainingAmount <= 0
+                ? "Parabens, a meta do mes ja foi atingida."
+                : monthlyGoal.remainingDays > 0
+                  ? `${moneyUSD(monthlyGoal.dailyNeeded)} por dia restante`
+                  : "Mes encerrado."}
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10, alignItems: "end" }} className="investGoalGrid">
+            <div>
+              <div style={{ ...styles.muted, fontSize: 12, marginBottom: 6 }}>Mes para acompanhamento</div>
+              <select
+                style={styles.input}
+                value={selectedGoalMonth}
+                onChange={(e) => setSelectedGoalMonth(e.target.value)}
+              >
+                {goalMonthOptions.map((option) => (
+                  <option key={option.key} value={option.key}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <div style={{ ...styles.muted, fontSize: 12, marginBottom: 6 }}>
+                Progresso da meta de {moneyUSD(monthlyGoal.monthTargetAmount)}
+              </div>
+              <div style={{ height: 14, borderRadius: 999, overflow: "hidden", background: "rgba(255,255,255,.06)", border: "1px solid var(--border)" }}>
+                <div
+                  style={{
+                    width: `${monthlyGoal.progressPctClamped * 100}%`,
+                    height: "100%",
+                    background: monthlyGoal.progressPct >= 1
+                      ? "linear-gradient(135deg, rgb(16,185,129), rgb(34,197,94))"
+                      : monthlyGoal.achievedAmount >= 0
+                        ? "linear-gradient(135deg, rgb(59,130,246), rgb(16,185,129))"
+                        : "linear-gradient(135deg, rgb(244,63,94), rgb(249,115,22))",
+                    transition: "width .2s ease",
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10 }}>
+            <div style={{ ...styles.card, padding: 10, background: "rgba(255,255,255,.03)" }}>
+              <div style={{ ...styles.muted, fontSize: 12 }}>Base no inicio do mes</div>
+              <div style={{ marginTop: 4, fontWeight: 900 }}>{moneyUSD(monthlyGoal.openingValue)}</div>
+            </div>
+            <div style={{ ...styles.card, padding: 10, background: "rgba(255,255,255,.03)" }}>
+              <div style={{ ...styles.muted, fontSize: 12 }}>Base mais recente do mes</div>
+              <div style={{ marginTop: 4, fontWeight: 900 }}>{moneyUSD(monthlyGoal.currentValue)}</div>
+            </div>
+            <div style={{ ...styles.card, padding: 10, background: "rgba(255,255,255,.03)" }}>
+              <div style={{ ...styles.muted, fontSize: 12 }}>Dias acompanhados</div>
+              <div style={{ marginTop: 4, fontWeight: 900 }}>{monthlyGoal.elapsedDays}/{monthlyGoal.totalDays || 0}</div>
+            </div>
+          </div>
+
+          <div style={{ ...styles.muted, fontSize: 12 }}>
+            {monthlyGoal.trackingReady
+              ? monthlyGoal.currentMonth
+                ? `Meta do mes atual: ${moneyUSD(monthlyGoal.monthTargetAmount)}. ${monthlyGoal.remainingAmount <= 0 ? "Meta atingida no acompanhamento atual." : `Faltam ${moneyUSD(monthlyGoal.remainingAmount)} para chegar nos 10%.`}`
+                : `Resumo de ${monthlyGoal.monthLabel}: alvo de ${moneyUSD(monthlyGoal.monthTargetAmount)} e resultado final de ${moneyUSD(monthlyGoal.achievedAmount)}.`
+              : "Ainda nao ha historico suficiente para medir a evolucao do mes selecionado. O calculo de 10% sobre a base atual continua disponivel acima."}
+          </div>
+          <div style={{ ...styles.muted, fontSize: 11 }}>
+            Dica: use "Patrimonio total" para uma leitura mais fiel quando houver posicoes abertas; use "Saldo da banca" se quiser mirar somente o caixa disponivel.
           </div>
         </div>
       </div>
