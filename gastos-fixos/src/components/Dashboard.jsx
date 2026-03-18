@@ -26,6 +26,10 @@ export default function Dashboard({
   const now = new Date();
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
+  const nextMonthDate = new Date(year, month, 1);
+  const nextYear = nextMonthDate.getFullYear();
+  const nextMonth = nextMonthDate.getMonth() + 1;
+  const nextMonthLabel = nextMonthDate.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
 
   const paidSet = useMemo(() => new Set(paidExpenseIds), [paidExpenseIds]);
 
@@ -39,6 +43,13 @@ export default function Dashboard({
     const fixed = activeThisMonth.reduce((acc, i) => acc + Number(i.amount || 0), 0);
     return fixed + Number(variableSpentMonth || 0);
   }, [activeThisMonth, variableSpentMonth]);
+
+  const projectedNextMonth = useMemo(() => {
+    return (items ?? [])
+      .filter((i) => i.active)
+      .filter((i) => expenseMonthInfo(i, nextYear, nextMonth).applicable)
+      .reduce((acc, i) => acc + Number(i.amount || 0), 0);
+  }, [items, nextMonth, nextYear]);
 
   const byCategory = useMemo(() => {
     const map = new Map();
@@ -69,7 +80,7 @@ export default function Dashboard({
         >
           <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
             <div>
-              <div style={{ fontWeight: 900, fontSize: 16 }}>Atualize o KM atual do seu veículo para manter as revisões em dia.</div>
+              <div style={{ fontWeight: 900, fontSize: 16 }}>Atualize o KM atual do seu veiculo para manter as revisoes em dia.</div>
               <div style={{ ...styles.muted, fontSize: 13, marginTop: 4 }}>
                 {vehicleAlerts.map((vehicle) => `${vehicle.name} (${vehicle.reminderLabel})`).join(" | ")}
               </div>
@@ -91,9 +102,15 @@ export default function Dashboard({
       ) : null}
 
       <div className="mobileCardTight" style={styles.card}>
-        <div style={{ fontWeight: 900, fontSize: 16 }}>Resumo do mês</div>
-        <div style={{ ...styles.muted, fontSize: 13 }}>Fixos ativos + saídas variáveis do mês</div>
+        <div style={{ fontWeight: 900, fontSize: 16 }}>Resumo do mes</div>
+        <div style={{ ...styles.muted, fontSize: 13 }}>Fixos ativos + saidas variaveis do mes</div>
         <div style={{ marginTop: 8, fontSize: 26, fontWeight: 950 }}>{moneyBRL(totalActive)}</div>
+      </div>
+
+      <div className="mobileCardTight" style={styles.card}>
+        <div style={{ fontWeight: 900, fontSize: 16 }}>Previsto para o proximo mes</div>
+        <div style={{ ...styles.muted, fontSize: 13 }}>{nextMonthLabel} | fixos e parcelas aplicaveis</div>
+        <div style={{ marginTop: 8, fontSize: 26, fontWeight: 950 }}>{moneyBRL(projectedNextMonth)}</div>
       </div>
 
       <div className="mobileCardTight" style={{ ...styles.card, gridColumn: "1 / -1" }}>
@@ -102,7 +119,7 @@ export default function Dashboard({
 
         <div className="dashboardChartBox" style={{ width: "100%", height: 300, marginTop: 10 }}>
           {byCategory.length === 0 ? (
-            <div style={{ ...styles.muted, padding: 14 }}>Cadastre um gasto ativo para ver o gráfico.</div>
+            <div style={{ ...styles.muted, padding: 14 }}>Cadastre um gasto ativo para ver o grafico.</div>
           ) : (
             <ResponsiveContainer>
               <BarChart data={byCategory} margin={{ left: 8, right: 12, top: 10, bottom: 10 }}>
@@ -166,11 +183,11 @@ export default function Dashboard({
       </div>
 
       <div className="mobileCardTight" style={styles.card}>
-        <div style={{ fontWeight: 900, fontSize: 16 }}>Próximos vencimentos</div>
-        <div style={{ ...styles.muted, fontSize: 13 }}>Somente pendentes do mês atual</div>
+        <div style={{ fontWeight: 900, fontSize: 16 }}>Proximos vencimentos</div>
+        <div style={{ ...styles.muted, fontSize: 13 }}>Somente pendentes do mes atual</div>
 
         {nextDue.length === 0 ? (
-          <div style={{ padding: 12, ...styles.muted }}>Sem pendências no momento.</div>
+          <div style={{ padding: 12, ...styles.muted }}>Sem pendencias no momento.</div>
         ) : (
           <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
             {nextDue.map((x) => (
@@ -189,7 +206,7 @@ export default function Dashboard({
               >
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontWeight: 900, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{x.name}</div>
-                  <div style={{ ...styles.muted, fontSize: 13 }}>{x.category} • dia {x.due_day}</div>
+                  <div style={{ ...styles.muted, fontSize: 13 }}>{x.category} | dia {x.due_day}</div>
                 </div>
                 <div style={{ textAlign: "right" }}>
                   <div style={{ fontWeight: 900 }}>{moneyBRL(x.amount)}</div>
@@ -203,11 +220,11 @@ export default function Dashboard({
 
       <div className="mobileCardTight" style={styles.card}>
         <div style={{ fontWeight: 900, fontSize: 16 }}>Categorias (donut)</div>
-        <div style={{ ...styles.muted, fontSize: 13 }}>Distribuição do total mensal</div>
+        <div style={{ ...styles.muted, fontSize: 13 }}>Distribuicao do total mensal</div>
 
         <div className="dashboardChartBox" style={{ width: "100%", height: 280, marginTop: 10 }}>
           {byCategory.length === 0 ? (
-            <div style={{ ...styles.muted, padding: 14 }}>Cadastre um gasto ativo para ver o gráfico.</div>
+            <div style={{ ...styles.muted, padding: 14 }}>Cadastre um gasto ativo para ver o grafico.</div>
           ) : (
             <ResponsiveContainer>
               <PieChart>
