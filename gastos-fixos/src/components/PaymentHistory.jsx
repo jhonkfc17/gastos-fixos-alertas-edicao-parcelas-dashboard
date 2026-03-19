@@ -308,7 +308,7 @@ export default function PaymentHistory({ userId, defaultYear, defaultMonth, onCh
           <div
             style={{
               width: "min(620px, 100%)",
-              background: "var(--card)",
+              background: "var(--modalSurface)",
               border: "1px solid var(--border)",
               borderRadius: 16,
               boxShadow: "var(--shadow)",
@@ -377,7 +377,7 @@ export default function PaymentHistory({ userId, defaultYear, defaultMonth, onCh
             style={{
               width: "min(980px, 100%)",
               height: "min(88vh, 820px)",
-              background: "var(--card)",
+              background: "var(--modalSurface)",
               border: "1px solid var(--border)",
               borderRadius: 16,
               boxShadow: "var(--shadow)",
@@ -386,7 +386,7 @@ export default function PaymentHistory({ userId, defaultYear, defaultMonth, onCh
               overflow: "hidden",
             }}
           >
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", padding: 12, borderBottom: "1px solid var(--border)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", padding: 12, borderBottom: "1px solid var(--border)", background: "var(--modalSurfaceAlt)" }}>
               <div style={{ minWidth: 0, flex: "1 1 240px" }}>
                 <div style={{ fontWeight: 900, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Preview do comprovante</div>
                 <div style={{ ...styles.muted, fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -411,7 +411,7 @@ export default function PaymentHistory({ userId, defaultYear, defaultMonth, onCh
               </div>
             </div>
 
-            <div style={{ background: "var(--card2)", minHeight: 0 }}>
+            <div style={{ background: "var(--modalSurfaceAlt)", minHeight: 0 }}>
               {receiptPreview.isPdf ? (
                 <iframe
                   title="preview-comprovante"

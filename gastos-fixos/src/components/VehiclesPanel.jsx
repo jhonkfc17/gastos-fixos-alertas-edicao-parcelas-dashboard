@@ -88,7 +88,7 @@ function ModalShell({ title, children, onClose }) {
       <div
         style={{
           width: "min(560px, 100%)",
-          background: "var(--bg2)",
+          background: "var(--modalSurface)",
           border: "1px solid var(--border)",
           borderRadius: 16,
           boxShadow: "var(--shadow)",

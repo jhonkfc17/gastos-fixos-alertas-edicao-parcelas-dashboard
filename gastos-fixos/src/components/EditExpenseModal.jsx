@@ -115,13 +115,12 @@ export default function EditExpenseModal({ open, item, onClose, onSave }) {
           width: "min(780px, 100%)",
           borderRadius: 18,
           border: "1px solid var(--border)",
-          background: "rgba(10,12,22,.92)",
+          background: "var(--modalSurface)",
           boxShadow: "0 30px 90px rgba(0,0,0,.65)",
-          backdropFilter: "blur(10px)",
           overflow: "hidden",
         }}
       >
-        <div style={{ padding: 14, borderBottom: "1px solid var(--border)", background: "var(--card2)" }}>
+        <div style={{ padding: 14, borderBottom: "1px solid var(--border)", background: "var(--modalSurfaceAlt)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "start" }}>
             <div>
               <div style={{ fontWeight: 950, fontSize: 16 }}>Editar conta</div>
@@ -201,7 +200,7 @@ export default function EditExpenseModal({ open, item, onClose, onSave }) {
               </div>
             </div>
           ) : (
-            <div style={{ ...styles.card, background: "rgba(255,255,255,.04)", borderRadius: 16 }}>
+            <div style={{ ...styles.card, background: "var(--modalSurfaceAlt)", borderRadius: 16 }}>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                 <div>
                   <div style={{ fontWeight: 900 }}>Detalhes do parcelamento</div>
@@ -266,7 +265,7 @@ export default function EditExpenseModal({ open, item, onClose, onSave }) {
           )}
         </div>
 
-        <div style={{ padding: 14, borderTop: "1px solid var(--border)", background: "rgba(255,255,255,.03)" }}>
+        <div style={{ padding: 14, borderTop: "1px solid var(--border)", background: "var(--modalSurfaceAlt)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
             <button style={styles.btnGhost} type="button" onClick={onClose}>Cancelar</button>
             <button style={styles.btn} type="button" onClick={handleSave}>Salvar alterações</button>
