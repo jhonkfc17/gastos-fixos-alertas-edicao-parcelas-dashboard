@@ -43,6 +43,7 @@ export default function WalletPanel({
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [receiptFile, setReceiptFile] = useState(null);
   const [txCategoryFilter, setTxCategoryFilter] = useState("");
+  const [txSearch, setTxSearch] = useState("");
 
   useEffect(() => {
     if (!userId) return;
@@ -111,9 +112,22 @@ export default function WalletPanel({
   }, [items, paidSet, balance]);
 
   const filteredTx = useMemo(() => {
-    if (!txCategoryFilter) return tx ?? [];
-    return (tx ?? []).filter((row) => parseTransactionCategory(row) === txCategoryFilter);
-  }, [tx, txCategoryFilter]);
+    const q = String(txSearch || "").trim().toLowerCase();
+    return (tx ?? []).filter((row) => {
+      const matchesCategory = txCategoryFilter ? parseTransactionCategory(row) === txCategoryFilter : true;
+      const haystack = [
+        kindLabel(row?.kind),
+        row?.description,
+        row?.note,
+        parseTransactionCategory(row),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      const matchesSearch = !q || haystack.includes(q);
+      return matchesCategory && matchesSearch;
+    });
+  }, [tx, txCategoryFilter, txSearch]);
 
   async function fetchWallet() {
     setLoading(true);
@@ -344,10 +358,20 @@ export default function WalletPanel({
             <span style={{ ...styles.muted, fontSize: 12 }}>{loading ? "..." : ""}</span>
           </div>
         </div>
+        <div style={{ padding: 12, borderBottom: "1px solid var(--border)", background: "var(--card2)" }}>
+          <input
+            style={{ ...styles.input, width: "100%" }}
+            placeholder="Buscar lancamento por categoria, descricao ou tipo..."
+            value={txSearch}
+            onChange={(e) => setTxSearch(e.target.value)}
+          />
+        </div>
 
         {filteredTx.length === 0 ? (
           <div style={{ padding: 12, ...styles.muted }}>
-            {txCategoryFilter ? `Nenhum lancamento encontrado para ${txCategoryFilter} nos ultimos 30 registros.` : "Sem lancamentos ainda."}
+            {(txCategoryFilter || txSearch)
+              ? "Nenhum lancamento encontrado com os filtros informados nos ultimos 30 registros."
+              : "Sem lancamentos ainda."}
           </div>
         ) : (
           filteredTx.map((r) => (
