@@ -20,6 +20,7 @@ export default function Dashboard({
   variableSpentMonth = 0,
   variableByCategory = [],
   vehicleAlerts = [],
+  onOpenCategory,
   onOpenVehicles,
   onSnoozeVehicleAlert,
 }) {
@@ -116,6 +117,11 @@ export default function Dashboard({
       <div className="mobileCardTight" style={{ ...styles.card, gridColumn: "1 / -1" }}>
         <div style={{ fontWeight: 900, fontSize: 16 }}>Ranking por categoria</div>
         <div style={{ ...styles.muted, fontSize: 13 }}>Total mensal (ativos)</div>
+        {byCategory.length > 0 ? (
+          <div style={{ ...styles.muted, fontSize: 12, marginTop: 4 }}>
+            Toque em uma categoria para abrir os gastos relacionados.
+          </div>
+        ) : null}
 
         <div className="dashboardChartBox" style={{ width: "100%", height: 300, marginTop: 10 }}>
           {byCategory.length === 0 ? (
@@ -140,7 +146,16 @@ export default function Dashboard({
                   width={54}
                 />
                 <Tooltip content={<DarkTooltip formatter={(v) => moneyBRL(v)} />} />
-                <Bar dataKey="value" name="Total" fill="url(#barGrad)" radius={[12, 12, 4, 4]} />
+                <Bar dataKey="value" name="Total" fill="url(#barGrad)" radius={[12, 12, 4, 4]}>
+                  {byCategory.map((entry) => (
+                    <Cell
+                      key={entry.name}
+                      fill="url(#barGrad)"
+                      cursor={onOpenCategory ? "pointer" : "default"}
+                      onClick={() => onOpenCategory?.(entry.name)}
+                    />
+                  ))}
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -149,17 +164,24 @@ export default function Dashboard({
         {byCategory.length > 0 ? (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
             {byCategory.slice(0, 8).map((c, idx) => (
-              <div
+              <button
                 key={c.name}
+                type="button"
+                onClick={() => onOpenCategory?.(c.name)}
                 style={{
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "space-between",
                   gap: 10,
+                  width: "100%",
                   padding: "10px 12px",
                   borderRadius: 14,
                   border: "1px solid var(--border)",
                   background: "var(--card2)",
+                  color: "inherit",
+                  font: "inherit",
+                  cursor: onOpenCategory ? "pointer" : "default",
+                  textAlign: "left",
                 }}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
@@ -176,7 +198,7 @@ export default function Dashboard({
                   <span style={{ fontWeight: 800, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.name}</span>
                 </div>
                 <span style={{ fontWeight: 900 }}>{moneyBRL(c.value)}</span>
-              </div>
+              </button>
             ))}
           </div>
         ) : null}
@@ -240,7 +262,12 @@ export default function Dashboard({
                   strokeWidth={2}
                 >
                   {byCategory.map((_, idx) => (
-                    <Cell key={idx} fill={CHART_COLORS[idx % CHART_COLORS.length]} />
+                    <Cell
+                      key={idx}
+                      fill={CHART_COLORS[idx % CHART_COLORS.length]}
+                      cursor={onOpenCategory ? "pointer" : "default"}
+                      onClick={() => onOpenCategory?.(byCategory[idx]?.name)}
+                    />
                   ))}
                 </Pie>
                 <Tooltip content={<DarkTooltip formatter={(v) => moneyBRL(v)} />} />

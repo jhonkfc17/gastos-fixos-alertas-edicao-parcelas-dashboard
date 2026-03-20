@@ -28,9 +28,12 @@ export default function App() {
   const [payDialog, setPayDialog] = useState({ open: false, expenseName: "", amount: "", file: null });
   const payDialogResolver = useRef(null);
   const [activeTab, setActiveTab] = useState("painel");
+  const [categoryJump, setCategoryJump] = useState({ name: "", token: 0 });
   const [vehicleRefresh, setVehicleRefresh] = useState(0);
   const [vehicleAlerts, setVehicleAlerts] = useState([]);
   const [snoozedVehicleAlerts, setSnoozedVehicleAlerts] = useState([]);
+  const walletSectionRef = useRef(null);
+  const expenseSectionRef = useRef(null);
 
   const [ym, setYm] = useState(() => {
     const d = new Date();
@@ -70,6 +73,21 @@ export default function App() {
     fetchVehicleAlerts().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user?.id, vehicleRefresh, snoozedVehicleAlerts]);
+
+  useEffect(() => {
+    if (activeTab !== "painel" || !categoryJump.name) return;
+
+    const target = resolveCategoryTarget(categoryJump.name);
+    const section = target === "wallet" ? walletSectionRef.current : expenseSectionRef.current;
+    if (!section) return;
+
+    const frameId = window.requestAnimationFrame(() => {
+      section.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, categoryJump, items, variableByCategory]);
 
   async function fetchItems() {
     setLoading(true);
@@ -126,6 +144,37 @@ export default function App() {
     const m = text.match(/^\[(.+?)\]/);
     if (m?.[1]) return m[1];
     return "Variaveis";
+  }
+
+  function hasFixedCategory(category) {
+    if (!category) return false;
+    const now = new Date();
+    return (items ?? [])
+      .filter((item) => item.active)
+      .filter((item) => expenseMonthInfo(item, now.getFullYear(), now.getMonth() + 1).applicable)
+      .some((item) => String(item.category || "").trim() === category);
+  }
+
+  function hasVariableCategory(category) {
+    if (!category) return false;
+    return (variableByCategory ?? []).some((item) => String(item.name || "").trim() === category && Number(item.value || 0) > 0);
+  }
+
+  function resolveCategoryTarget(category) {
+    if (hasFixedCategory(category)) return "expenses";
+    if (hasVariableCategory(category)) return "wallet";
+    return "expenses";
+  }
+
+  function openCategoryFromDashboard(category) {
+    const nextCategory = String(category || "").trim();
+    if (!nextCategory) return;
+    setCategoryJump({ name: nextCategory, token: Date.now() });
+    setActiveTab("painel");
+  }
+
+  function clearCategoryJump() {
+    setCategoryJump({ name: "", token: Date.now() });
   }
 
   async function fetchCurrentMonthVariable() {
@@ -574,17 +623,21 @@ export default function App() {
                 variableSpentMonth={variableSpentMonth}
                 variableByCategory={variableByCategory}
                 vehicleAlerts={vehicleAlerts}
+                onOpenCategory={openCategoryFromDashboard}
                 onOpenVehicles={() => setActiveTab("veiculos")}
                 onSnoozeVehicleAlert={(vehicleId) => setSnoozedVehicleAlerts((prev) => [...new Set([...prev, vehicleId])])}
               />
             </div>
 
-            <div style={{ marginTop: 14 }}>
+            <div ref={walletSectionRef} style={{ marginTop: 14, scrollMarginTop: 20 }}>
               <WalletPanel
                 userId={session.user.id}
                 items={items}
                 paidExpenseIds={paidExpenseIds}
                 refreshKey={walletRefresh}
+                externalCategoryFilter={hasVariableCategory(categoryJump.name) ? categoryJump.name : ""}
+                externalCategoryFilterKey={categoryJump.token}
+                onClearExternalCategoryFilter={clearCategoryJump}
                 onChanged={() => setWalletRefresh((v) => v + 1)}
               />
             </div>
@@ -593,11 +646,14 @@ export default function App() {
               <ExpenseForm loading={saving} onAdd={addExpense} />
             </div>
 
-            <div style={{ marginTop: 14 }}>
+            <div ref={expenseSectionRef} style={{ marginTop: 14, scrollMarginTop: 20 }}>
               <ExpenseList
                 items={items}
                 paidExpenseIds={monthPaidExpenseIds}
                 selectedYM={ym}
+                externalCategoryFilter={hasFixedCategory(categoryJump.name) ? categoryJump.name : ""}
+                externalCategoryFilterKey={categoryJump.token}
+                onClearExternalCategoryFilter={clearCategoryJump}
                 onTogglePaid={(id) => togglePaidForMonth(id, ym)}
                 onToggleActive={(id, nextActive) => toggleActive(id, nextActive)}
                 onRemove={(id) => removeExpense(id)}

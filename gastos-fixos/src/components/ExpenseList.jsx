@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { expenseMonthInfo, formatMoneyInput, installmentEndLabel, isInstallmentCompleted, moneyBRL, parseMoneyInput, styles, ymLabel } from "./ui";
 import EditExpenseModal from "./EditExpenseModal";
 
@@ -8,6 +8,9 @@ export default function ExpenseList({
   items,
   paidExpenseIds = [],
   selectedYM,
+  externalCategoryFilter = "",
+  externalCategoryFilterKey = 0,
+  onClearExternalCategoryFilter,
   onTogglePaid,
   onToggleActive,
   onRemove,
@@ -22,6 +25,10 @@ export default function ExpenseList({
     const fromItems = [...new Set((items ?? []).map((i) => String(i?.category || "").trim()).filter(Boolean))];
     return ["Todas", ...new Set([...baseCategories, ...fromItems])];
   }, [items]);
+
+  useEffect(() => {
+    setFilter((prev) => ({ ...prev, category: externalCategoryFilter || "Todas" }));
+  }, [externalCategoryFilter, externalCategoryFilterKey]);
 
   const filtered = useMemo(() => {
     const list = items ?? [];
@@ -59,6 +66,14 @@ export default function ExpenseList({
           <div style={{ ...styles.muted, fontSize: 13 }}>
             Edite valor e saia do campo para salvar. Marcar pagamento em {ymLabel(selectedYM?.year, selectedYM?.month)}.
           </div>
+          {externalCategoryFilter ? (
+            <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span style={styles.badge}>Filtro do grafico: {externalCategoryFilter}</span>
+              <button style={styles.btnGhost} type="button" onClick={() => onClearExternalCategoryFilter?.()}>
+                Limpar filtro
+              </button>
+            </div>
+          ) : null}
         </div>
 
         <div className="expenseFilters" style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>

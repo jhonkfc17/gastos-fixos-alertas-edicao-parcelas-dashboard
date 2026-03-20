@@ -11,7 +11,16 @@ function isMissingColumnError(error, column) {
 }
 
 // Carteira GLOBAL (saldo total). Mantem ref_year/ref_month apenas como referencia.
-export default function WalletPanel({ userId, items = [], paidExpenseIds = [], refreshKey, onChanged }) {
+export default function WalletPanel({
+  userId,
+  items = [],
+  paidExpenseIds = [],
+  refreshKey,
+  externalCategoryFilter = "",
+  externalCategoryFilterKey = 0,
+  onClearExternalCategoryFilter,
+  onChanged,
+}) {
   const variableCategories = [
     "Combustivel",
     "Combustivel Carro",
@@ -33,12 +42,18 @@ export default function WalletPanel({ userId, items = [], paidExpenseIds = [], r
   const [desc, setDesc] = useState("");
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [receiptFile, setReceiptFile] = useState(null);
+  const [txCategoryFilter, setTxCategoryFilter] = useState("");
 
   useEffect(() => {
     if (!userId) return;
     fetchWallet().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, refreshKey]);
+
+  useEffect(() => {
+    if (typeof externalCategoryFilter === "undefined") return;
+    setTxCategoryFilter(externalCategoryFilter || "");
+  }, [externalCategoryFilter, externalCategoryFilterKey]);
 
   const balance = useMemo(() => {
     return (tx ?? []).reduce((acc, r) => acc + Number(r.amount || 0), 0);
@@ -94,6 +109,11 @@ export default function WalletPanel({ userId, items = [], paidExpenseIds = [], r
       remainingInstallmentCount,
     };
   }, [items, paidSet, balance]);
+
+  const filteredTx = useMemo(() => {
+    if (!txCategoryFilter) return tx ?? [];
+    return (tx ?? []).filter((row) => parseTransactionCategory(row) === txCategoryFilter);
+  }, [tx, txCategoryFilter]);
 
   async function fetchWallet() {
     setLoading(true);
@@ -194,6 +214,13 @@ export default function WalletPanel({ userId, items = [], paidExpenseIds = [], r
     if (k === "expense_payment") return "Saida (pago)";
     if (k === "manual_expense") return "Saida (manual)";
     return k || "Lancamento";
+  }
+
+  function parseTransactionCategory(row) {
+    if (row?.kind !== "manual_expense") return "";
+    const text = String(row?.description || row?.note || "").trim();
+    const m = text.match(/^\[(.+?)\]/);
+    return m?.[1] || "";
   }
 
   return (
@@ -305,13 +332,25 @@ export default function WalletPanel({ userId, items = [], paidExpenseIds = [], r
           }}
         >
           <span>Ultimos 30 lancamentos</span>
-          <span style={{ ...styles.muted, fontSize: 12 }}>{loading ? "..." : ""}</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            {txCategoryFilter ? (
+              <>
+                <span style={styles.badge}>Categoria: {txCategoryFilter}</span>
+                <button style={styles.btnGhost} type="button" onClick={() => onClearExternalCategoryFilter?.()}>
+                  Limpar filtro
+                </button>
+              </>
+            ) : null}
+            <span style={{ ...styles.muted, fontSize: 12 }}>{loading ? "..." : ""}</span>
+          </div>
         </div>
 
-        {(tx ?? []).length === 0 ? (
-          <div style={{ padding: 12, ...styles.muted }}>Sem lancamentos ainda.</div>
+        {filteredTx.length === 0 ? (
+          <div style={{ padding: 12, ...styles.muted }}>
+            {txCategoryFilter ? `Nenhum lancamento encontrado para ${txCategoryFilter} nos ultimos 30 registros.` : "Sem lancamentos ainda."}
+          </div>
         ) : (
-          (tx ?? []).map((r) => (
+          filteredTx.map((r) => (
             <div
               key={r.id}
               className="walletTxRow"
