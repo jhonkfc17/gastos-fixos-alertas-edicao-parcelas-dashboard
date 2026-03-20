@@ -14,6 +14,8 @@ function isMissingColumnError(error, column) {
 export default function WalletPanel({ userId, items = [], paidExpenseIds = [], refreshKey, onChanged }) {
   const variableCategories = [
     "Combustivel",
+    "Combustivel Carro",
+    "Combustivel Moto",
     "Alimentacao",
     "Transporte",
     "Lazer",
